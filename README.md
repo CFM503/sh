@@ -35,7 +35,7 @@ wget -O menu.sh https://raw.githubusercontent.com/CFM503/sh/master/menu.sh && ba
 
 ## 版本
 
-当前版本: v1.3.3
+当前版本: v1.4.0
 
 ## 许可证
 
