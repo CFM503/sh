@@ -24,6 +24,48 @@ check_root() {
     fi
 }
 
+# 确保Nginx已安装
+ensure_nginx_installed() {
+    if command -v nginx &> /dev/null; then
+        return 0
+    fi
+    
+    echo -e "${YELLOW}Nginx未安装，正在自动安装...${NC}"
+    
+    # 检测包管理器
+    if command -v apt &> /dev/null; then
+        apt update
+        apt install -y nginx
+    elif command -v yum &> /dev/null; then
+        yum install -y nginx
+    elif command -v dnf &> /dev/null; then
+        dnf install -y nginx
+    elif command -v pacman &> /dev/null; then
+        pacman -S --noconfirm nginx
+    else
+        echo -e "${RED}错误: 未检测到支持的包管理器${NC}"
+        echo -e "${YELLOW}请手动安装 Nginx${NC}"
+        return 1
+    fi
+    
+    if command -v nginx &> /dev/null; then
+        echo -e "${GREEN}Nginx安装成功${NC}"
+        
+        # 启动Nginx
+        if command -v systemctl &> /dev/null; then
+            systemctl enable nginx
+            systemctl start nginx
+        else
+            service nginx start
+        fi
+        
+        return 0
+    else
+        echo -e "${RED}Nginx安装失败${NC}"
+        return 1
+    fi
+}
+
 # 检测包管理器
 detect_package_manager() {
     if command -v apt &> /dev/null; then
@@ -226,6 +268,11 @@ create_proxy_conf() {
     local path="$1"
     local upstream_host="$2"
     local upstream_port="$3"
+    
+    # 确保Nginx已安装
+    if ! ensure_nginx_installed; then
+        return 1
+    fi
     
     echo -e "${YELLOW}创建独立配置文件...${NC}"
     
