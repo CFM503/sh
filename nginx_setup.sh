@@ -274,60 +274,74 @@ create_proxy_conf() {
         return 1
     fi
     
-    echo -e "${YELLOW}创建反向代理配置...${NC}"
+    echo -e "${YELLOW}添加反向代理配置...${NC}"
     
     local nginx_type=$(detect_nginx_config_dir)
-    local CONF_DIR CONF_FILE ENABLED_DIR
+    local CONF_FILE
     
+    # 找到主配置文件 (default 或第一个配置)
     if [ "$nginx_type" = "debian" ]; then
-        CONF_DIR="/etc/nginx/sites-available"
-        ENABLED_DIR="/etc/nginx/sites-enabled"
+        if [ -f /etc/nginx/sites-available/default ]; then
+            CONF_FILE="/etc/nginx/sites-available/default"
+        else
+            CONF_FILE=$(ls /etc/nginx/sites-available/*.conf 2>/dev/null | head -1)
+        fi
     else
-        CONF_DIR="/etc/nginx/conf.d"
-        ENABLED_DIR=""
+        CONF_FILE="/etc/nginx/conf.d/default.conf"
     fi
     
-    CONF_FILE="$CONF_DIR/proxy_${path//\//_}.conf"
-    mkdir -p "$CONF_DIR"
+    if [ -z "$CONF_FILE" ] || [ ! -f "$CONF_FILE" ]; then
+        echo -e "${RED}未找到Nginx配置文件${NC}"
+        return 1
+    fi
+    
+    echo -e "${BLUE}配置文件: ${CONF_FILE}${NC}"
     
     # 备份
     backup_config "$CONF_FILE"
     
-    # 创建完整的 server 配置
-    cat > "$CONF_FILE" << EOF
-server {
-    listen 80;
-    server_name _;
-
-    location $path {
-        proxy_pass http://$upstream_host:$upstream_port;
-        proxy_redirect off;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-        proxy_buffering off;
-        proxy_cache off;
-    }
-}
-EOF
-
-    # Debian系统需要软链接到sites-enabled
-    if [ -n "$ENABLED_DIR" ] && [ -d "$ENABLED_DIR" ]; then
-        ln -sf "$CONF_FILE" "$ENABLED_DIR/"
+    # 检查是否已有相同的 location
+    if grep -q "location $path" "$CONF_FILE" 2>/dev/null; then
+        echo -e "${YELLOW}已存在 location $path，跳过${NC}"
+        return 0
     fi
     
-    echo -e "${GREEN}配置文件已创建: ${CONF_FILE}${NC}"
-    echo -e "${GREEN}路径: $path -> $upstream_host:$upstream_port${NC}"
+    # 生成 location 配置块
+    local location_block="
+# 反向代理配置 - $(date)
+location $path {
+    proxy_pass http://$upstream_host:$upstream_port;
+    proxy_redirect off;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection \"upgrade\";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+    proxy_buffering off;
+    proxy_cache off;
+}"
     
-    # 检查并显示下一步提示
+    # 在最后一个 } 之前插入 location 块
+    # 使用 sed 在最后一个 } 之前插入
+    sed -i "/^}/i\\${location_block}" "$CONF_FILE"
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}配置已添加: $path -> $upstream_host:$upstream_port${NC}"
+    else
+        echo -e "${RED}配置添加失败${NC}"
+        return 1
+    fi
+    
+    # 确保 sites-enabled 有链接
+    if [ "$nginx_type" = "debian" ] && [ -d /etc/nginx/sites-enabled ]; then
+        ln -sf "$CONF_FILE" /etc/nginx/sites-enabled/
+    fi
+    
     echo ""
     echo -e "${YELLOW}下一步:${NC}"
     echo -e "1. 检查配置: ${GREEN}nginx -t${NC}"
