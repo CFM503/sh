@@ -6,6 +6,19 @@
 
 ---
 
+## [1.3.1] - 2026-08-31
+
+### 优化与增强
+
+#### Nginx 管理与配置 (nginx_setup.sh)
+- **深度彻底卸载 (Purge)**：重构并增强卸载功能，支持全量清除 `nginx`、`nginx-common`、`nginx-core`、`nginx-full` 以及 `libnginx-mod-*` 等动态扩展模块与孤立依赖包。
+- **全方位残余文件清理**：卸载时自动清理 `/etc/nginx/`、`/var/log/nginx/`、`/var/cache/nginx/`、`/usr/share/nginx/`、`/run/nginx.pid` 等所有配置文件、日志与缓存。
+- **自动安全备份**：在完全卸载（Purge）前，自动对历史配置进行带时间戳的完整归档备份（保存在 `/root/nginx_backup_before_purge_*`），防止误操作造成配置丢失。
+- **服务与进程管理**：卸载时自动停止并强制清理可能残留的 Nginx 僵尸进程，自动执行 `systemctl daemon-reload` 和 `reset-failed` 注销服务并彻底释放 80/443 端口。
+- **零系统影响保障**：确保卸载过程仅作用于 Nginx 体系，绝对不影响 SSH（22 端口）、后端服务（如 goway 2052 端口）、网络内核（BBR/Sysctl）以及用户已有网站数据。
+
+---
+
 ## [1.3.0] - 2026-08-31
 
 ### 重构与修复
