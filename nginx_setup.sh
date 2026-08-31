@@ -274,49 +274,48 @@ create_proxy_conf() {
         return 1
     fi
     
-    echo -e "${YELLOW}创建独立配置文件...${NC}"
+    echo -e "${YELLOW}创建反向代理配置...${NC}"
     
     local nginx_type=$(detect_nginx_config_dir)
+    local CONF_DIR CONF_FILE ENABLED_DIR
     
     if [ "$nginx_type" = "debian" ]; then
         CONF_DIR="/etc/nginx/sites-available"
         ENABLED_DIR="/etc/nginx/sites-enabled"
-        CONF_FILE="$CONF_DIR/proxy${path//\//_}.conf"
     else
         CONF_DIR="/etc/nginx/conf.d"
         ENABLED_DIR=""
-        CONF_FILE="$CONF_DIR/proxy${path//\//_}.conf"
     fi
     
+    CONF_FILE="$CONF_DIR/proxy_${path//\//_}.conf"
     mkdir -p "$CONF_DIR"
     
     # 备份
     backup_config "$CONF_FILE"
     
-    # 创建配置
+    # 创建完整的 server 配置
     cat > "$CONF_FILE" << EOF
-# 反向代理配置 - $(date)
-# 路径: $path -> $upstream_host:$upstream_port
+server {
+    listen 80;
+    server_name _;
 
-location $path {
-    proxy_pass http://$upstream_host:$upstream_port;
-    proxy_redirect off;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    
-    # 超时设置
-    proxy_connect_timeout 60s;
-    proxy_send_timeout 60s;
-    proxy_read_timeout 60s;
-    
-    # 缓冲设置
-    proxy_buffering off;
-    proxy_cache off;
+    location $path {
+        proxy_pass http://$upstream_host:$upstream_port;
+        proxy_redirect off;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_buffering off;
+        proxy_cache off;
+    }
 }
 EOF
 
@@ -325,8 +324,14 @@ EOF
         ln -sf "$CONF_FILE" "$ENABLED_DIR/"
     fi
     
-    echo -e "${GREEN}配置文件已创建: $CONF_FILE${NC}"
+    echo -e "${GREEN}配置文件已创建: ${CONF_FILE}${NC}"
     echo -e "${GREEN}路径: $path -> $upstream_host:$upstream_port${NC}"
+    
+    # 检查并显示下一步提示
+    echo ""
+    echo -e "${YELLOW}下一步:${NC}"
+    echo -e "1. 检查配置: ${GREEN}nginx -t${NC}"
+    echo -e "2. 重载Nginx: ${GREEN}systemctl reload nginx${NC}"
 }
 
 # 检查配置语法
@@ -363,20 +368,38 @@ reload_nginx() {
 
 # 查看当前配置
 show_config() {
-    echo -e "${YELLOW}当前Nginx反向代理配置:${NC}"
+    echo -e "${YELLOW}=== Nginx 配置信息 ===${NC}"
     echo ""
     
+    # 检查Nginx主配置
+    echo -e "${BLUE}Nginx 主配置文件:${NC}"
+    if [ -f /etc/nginx/nginx.conf ]; then
+        echo "  /etc/nginx/nginx.conf"
+        echo ""
+        echo -e "${BLUE}Include 配置:${NC}"
+        grep -E "include|sites-enabled|conf.d" /etc/nginx/nginx.conf 2>/dev/null | head -10
+    fi
+    
+    echo ""
     local nginx_type=$(detect_nginx_config_dir)
     
     if [ "$nginx_type" = "debian" ]; then
-        echo -e "${BLUE}配置目录: /etc/nginx/sites-available/${NC}"
-        echo -e "${BLUE}已启用配置: /etc/nginx/sites-enabled/${NC}"
+        echo -e "${BLUE}=== /etc/nginx/sites-available/ ===${NC}"
+        ls -la /etc/nginx/sites-available/ 2>/dev/null
         echo ""
-        grep -r "location" /etc/nginx/sites-enabled/ 2>/dev/null
+        echo -e "${BLUE}=== /etc/nginx/sites-enabled/ ===${NC}"
+        ls -la /etc/nginx/sites-enabled/ 2>/dev/null
     else
-        echo -e "${BLUE}配置目录: /etc/nginx/conf.d/${NC}"
-        echo ""
-        grep -r "location" /etc/nginx/conf.d/ 2>/dev/null
+        echo -e "${BLUE}=== /etc/nginx/conf.d/ ===${NC}"
+        ls -la /etc/nginx/conf.d/ 2>/dev/null
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}已配置的 location:${NC}"
+    if [ -d /etc/nginx/sites-enabled ]; then
+        grep -rn "location\|proxy_pass" /etc/nginx/sites-enabled/ 2>/dev/null
+    elif [ -d /etc/nginx/conf.d ]; then
+        grep -rn "location\|proxy_pass" /etc/nginx/conf.d/ 2>/dev/null
     fi
 }
 
