@@ -2,6 +2,43 @@
 
 一套通用的VPS管理脚本，支持所有Linux发行版。
 
+## 快速开始
+
+### 方式一：只下载 menu.sh（推荐）
+
+```bash
+# 下载 menu.sh
+wget https://raw.githubusercontent.com/CFM503/sh/master/menu.sh
+
+# 添加执行权限
+chmod +x menu.sh
+
+# 运行
+bash menu.sh
+```
+
+启动后会自动下载所需的子菜单文件。
+
+### 方式二：克隆完整仓库
+
+```bash
+# 克隆仓库
+git clone https://github.com/CFM503/sh.git
+
+# 进入目录
+cd sh
+
+# 运行
+bash menu.sh
+```
+
+### 方式三：一键安装
+
+```bash
+# 一键下载并运行
+wget https://raw.githubusercontent.com/CFM503/sh/master/menu.sh && chmod +x menu.sh && bash menu.sh
+```
+
 ## 功能模块
 
 ### 1. 系统管理

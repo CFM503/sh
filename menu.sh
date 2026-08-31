@@ -848,25 +848,54 @@ download_file() {
     local dest="${BASH_SOURCE[0]%/*}/${filename}"
     
     echo -e "${YELLOW}正在下载 ${filename}...${NC}"
+    echo -e "${BLUE}URL: ${url}${NC}"
+    echo -e "${BLUE}目标: ${dest}${NC}"
+    
+    local download_success=false
     
     # 尝试使用curl
     if command -v curl &> /dev/null; then
-        curl -sL -o "$dest" "$url"
-    # 尝试使用wget
-    elif command -v wget &> /dev/null; then
-        wget -q -O "$dest" "$url"
-    else
-        echo -e "${RED}错误: 未找到 curl 或 wget${NC}"
-        echo "请手动下载: $url"
-        return 1
+        echo -e "${BLUE}使用 curl 下载...${NC}"
+        curl -L --connect-timeout 10 --max-time 30 -o "$dest" "$url"
+        if [ $? -eq 0 ] && [ -f "$dest" ] && [ -s "$dest" ]; then
+            download_success=true
+        fi
     fi
     
-    if [ -f "$dest" ]; then
+    # 如果curl失败，尝试wget
+    if [ "$download_success" = false ] && command -v wget &> /dev/null; then
+        echo -e "${BLUE}使用 wget 下载...${NC}"
+        wget --timeout=10 -O "$dest" "$url"
+        if [ $? -eq 0 ] && [ -f "$dest" ] && [ -s "$dest" ]; then
+            download_success=true
+        fi
+    fi
+    
+    # 如果还是失败，尝试git clone
+    if [ "$download_success" = false ] && command -v git &> /dev/null; then
+        echo -e "${BLUE}使用 git 下载...${NC}"
+        local temp_dir="/tmp/sh_download_$$"
+        rm -rf "$temp_dir"
+        git clone --depth 1 https://github.com/CFM503/sh.git "$temp_dir" 2>/dev/null
+        if [ -f "$temp_dir/$filename" ]; then
+            cp "$temp_dir/$filename" "$dest"
+            rm -rf "$temp_dir"
+            if [ -f "$dest" ] && [ -s "$dest" ]; then
+                download_success=true
+            fi
+        else
+            rm -rf "$temp_dir"
+        fi
+    fi
+    
+    if [ "$download_success" = true ]; then
         echo -e "${GREEN}下载成功: ${filename}${NC}"
-        chmod +x "$dest"
+        chmod +x "$dest" 2>/dev/null
         return 0
     else
         echo -e "${RED}下载失败: ${filename}${NC}"
+        echo -e "${YELLOW}请手动下载: ${url}${NC}"
+        echo -e "${YELLOW}保存到: ${dest}${NC}"
         return 1
     fi
 }
