@@ -1125,7 +1125,7 @@ main_menu() {
         echo -e "${CYAN}========================================${NC}"
         echo -n "请选择操作 [0-9]: "
         
-        read -r choice
+        read -r choice || break
         case "$choice" in
             1)
                 check_root

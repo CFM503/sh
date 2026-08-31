@@ -117,7 +117,7 @@ dep_management() {
         echo -e "${CYAN}==============================${NC}"
         echo -n "请选择: "
         
-        read choice
+        read choice || break
         case $choice in
             1) 
                 echo ""
@@ -175,7 +175,7 @@ main() {
     
     while true; do
         show_main_menu
-        read choice
+        read choice || break
         case $choice in
             1) run_submenu "network_optimize.sh" ;;
             2) run_submenu "nginx_setup.sh" ;;

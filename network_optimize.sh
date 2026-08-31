@@ -285,7 +285,7 @@ main_menu() {
         echo -e "${CYAN}========================================${NC}"
         echo -n "请选择: "
         
-        read choice
+        read -r choice || break
         case $choice in
             1) show_current_config ;;
             2)
