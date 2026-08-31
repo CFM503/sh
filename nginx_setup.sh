@@ -207,8 +207,8 @@ uninstall_nginx() {
     echo -e "${RED}========================================${NC}"
     echo -e "${RED}           警告: 即将卸载 Nginx!${NC}"
     echo -e "${RED}========================================${NC}"
-    echo -e "1. 仅卸载 Nginx 程序 (保留配置文件)"
-    echo -e "2. 完全卸载 Nginx 并清除所有配置文件 (Purge)"
+    echo -e "1. 仅卸载 Nginx 程序 (保留配置文件与日志)"
+    echo -e "2. 完全卸载 Nginx 并彻底清除残留 (Purge 推荐)"
     echo -e "0. 取消"
     echo -e "${RED}========================================${NC}"
     echo -n "请选择卸载方式 [0-2]: "
@@ -220,31 +220,70 @@ uninstall_nginx() {
             stop_service 2>/dev/null
             if command -v systemctl &> /dev/null; then
                 systemctl disable nginx 2>/dev/null
+                systemctl reset-failed nginx 2>/dev/null
             fi
-            echo -e "${YELLOW}正在卸载 Nginx...${NC}"
+            killall -9 nginx 2>/dev/null || pkill -9 nginx 2>/dev/null
+            echo -e "${YELLOW}正在卸载 Nginx 主程序...${NC}"
             $PKG_REMOVE nginx
-            echo -e "${GREEN}✓ Nginx 程序已卸载 (配置已保留)${NC}"
+            echo -e "${GREEN}✓ Nginx 程序已卸载 (配置文件已完整保留在 /etc/nginx/)${NC}"
             ;;
         2)
-            echo -e "${RED}确认清除所有 Nginx 配置与站点文件? (y/N): ${NC}"
+            echo -e "${RED}确认彻底清除所有 Nginx 程序、配置、模块与缓存日志? (y/N): ${NC}"
             read -r confirm_purge
             if [ "$confirm_purge" = "y" ] || [ "$confirm_purge" = "Y" ]; then
+                echo -e "${YELLOW}正在停止并清理 Nginx 进程...${NC}"
                 stop_service 2>/dev/null
                 if command -v systemctl &> /dev/null; then
                     systemctl disable nginx 2>/dev/null
                 fi
-                echo -e "${YELLOW}备份配置到 /root/nginx_backup_before_purge...${NC}"
-                mkdir -p /root/nginx_backup_before_purge
-                cp -r /etc/nginx /root/nginx_backup_before_purge/ 2>/dev/null
+                killall -9 nginx 2>/dev/null || pkill -9 nginx 2>/dev/null
                 
-                echo -e "${YELLOW}彻底清除 Nginx...${NC}"
-                if [ "$PKG_MGR" = "apt" ]; then
-                    $PKG_PURGE nginx nginx-common nginx-core
-                else
-                    $PKG_REMOVE nginx
-                    rm -rf /etc/nginx
+                # 自动安全备份
+                local purge_bak="/root/nginx_backup_before_purge_$(date +%Y%m%d_%H%M%S)"
+                if [ -d "/etc/nginx" ]; then
+                    echo -e "${BLUE}安全备份原配置到: ${purge_bak}...${NC}"
+                    mkdir -p "$purge_bak"
+                    cp -r /etc/nginx "$purge_bak/" 2>/dev/null
+                    echo -e "${GREEN}✓ 备份完成${NC}"
                 fi
-                echo -e "${GREEN}✓ Nginx 已完全卸载并清理配置${NC}"
+                
+                echo -e "${YELLOW}通过包管理器深度清除 Nginx 及其依赖模块...${NC}"
+                if [ "$PKG_MGR" = "apt" ]; then
+                    apt-get purge -y nginx nginx-common nginx-core nginx-full "libnginx-mod-*" 2>/dev/null || $PKG_PURGE nginx nginx-common nginx-core
+                    apt-get autoremove --purge -y 2>/dev/null
+                elif [ "$PKG_MGR" = "dnf" ] || [ "$PKG_MGR" = "yum" ]; then
+                    if command -v dnf &>/dev/null; then
+                        dnf remove -y nginx nginx-filesystem nginx-core 2>/dev/null || dnf remove -y nginx
+                        dnf autoremove -y 2>/dev/null
+                    else
+                        yum remove -y nginx nginx-filesystem 2>/dev/null || yum remove -y nginx
+                    fi
+                elif [ "$PKG_MGR" = "pacman" ]; then
+                    pacman -Rns --noconfirm nginx 2>/dev/null
+                elif [ "$PKG_MGR" = "apk" ]; then
+                    apk del nginx 2>/dev/null
+                else
+                    $PKG_REMOVE nginx 2>/dev/null
+                fi
+                
+                echo -e "${YELLOW}清理残留配置目录、日志与缓存文件...${NC}"
+                rm -rf /etc/nginx 2>/dev/null
+                rm -rf /var/log/nginx 2>/dev/null
+                rm -rf /var/cache/nginx 2>/dev/null
+                rm -rf /usr/share/nginx 2>/dev/null
+                rm -rf /run/nginx.pid 2>/dev/null
+                
+                # 刷新 systemd 状态
+                if command -v systemctl &> /dev/null; then
+                    systemctl daemon-reload 2>/dev/null
+                    systemctl reset-failed 2>/dev/null
+                fi
+                
+                echo ""
+                echo -e "${GREEN}======================================================${NC}"
+                echo -e "${GREEN}  ✓ Nginx 已完全卸载，所有残留文件与系统服务已清理干净!${NC}"
+                echo -e "${GREEN}======================================================${NC}"
+                [ -d "$purge_bak" ] && echo -e "${BLUE}卸载前的历史配置备份保存在: ${purge_bak}${NC}"
             else
                 echo -e "${YELLOW}已取消清除操作${NC}"
             fi
