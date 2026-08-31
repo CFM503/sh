@@ -469,13 +469,11 @@ main_menu() {
         echo -e "${GREEN}1.${NC} 安装Nginx"
         echo -e "${GREEN}2.${NC} 启动Nginx"
         echo -e "${GREEN}3.${NC} 查看当前配置"
-        echo -e "${GREEN}4.${NC} 添加自定义代理"
-        echo -e "${GREEN}5.${NC} 预设: /pyway -> 127.0.0.1:2052"
-        echo -e "${GREEN}6.${NC} 一键添加所有预设"
-        echo -e "${GREEN}7.${NC} 检查配置语法"
-        echo -e "${GREEN}8.${NC} 重载Nginx"
-        echo -e "${GREEN}9.${NC} 删除代理配置"
-        echo -e "${GREEN}10.${NC} 卸载Nginx"
+        echo -e "${GREEN}4.${NC} 添加反向代理"
+        echo -e "${GREEN}5.${NC} 检查配置语法"
+        echo -e "${GREEN}6.${NC} 重载Nginx"
+        echo -e "${GREEN}7.${NC} 删除代理配置"
+        echo -e "${GREEN}8.${NC} 卸载Nginx"
         echo -e "${RED}0.${NC} 返回"
         echo -e "${CYAN}========================================${NC}"
         echo -n "请选择: "
@@ -495,21 +493,13 @@ main_menu() {
                 check_root
                 add_custom_proxy
                 ;;
-            5) 
-                check_root
-                preset_pyway
-                ;;
-            6)
-                check_root
-                preset_all
-                ;;
-            7) test_config ;;
-            8) reload_nginx ;;
-            9) 
+            5) test_config ;;
+            6) reload_nginx ;;
+            7) 
                 check_root
                 delete_proxy_config
                 ;;
-            10)
+            8)
                 check_root
                 uninstall_nginx
                 ;;
