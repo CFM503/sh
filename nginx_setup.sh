@@ -329,8 +329,13 @@ location $path {
 }
 EOF
     
-    # 在最后一个 } 之前插入配置
-    sed -i "/^}/r $tmpfile" "$CONF_FILE"
+    # 找到最后一个 } 的行号，在它之前插入
+    local last_brace=$(grep -n "^}" "$CONF_FILE" | tail -1 | cut -d: -f1)
+    if [ -n "$last_brace" ]; then
+        sed -i "${last_brace}i\\$(cat $tmpfile)" "$CONF_FILE"
+    else
+        cat "$tmpfile" >> "$CONF_FILE"
+    fi
     rm -f "$tmpfile"
     
     if [ $? -eq 0 ]; then
