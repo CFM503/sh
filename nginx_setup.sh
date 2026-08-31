@@ -120,10 +120,40 @@ detect_nginx_dirs() {
     fi
 }
 
+# 自动清理历史残留的损坏/乱码配置文件与死链接
+clean_corrupted_configs() {
+    for dir in /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d; do
+        if [ -d "$dir" ]; then
+            for f in "$dir"/proxy_*.conf; do
+                if [ -e "$f" ] || [ -L "$f" ]; then
+                    # 1. 清理死链接
+                    if [ -L "$f" ] && [ ! -e "$f" ]; then
+                        rm -f "$f" 2>/dev/null
+                        continue
+                    fi
+                    # 2. 清理文件名包含非法/乱码字符的文件
+                    local base_name
+                    base_name=$(basename "$f")
+                    if [[ "$base_name" =~ [^a-zA-Z0-9_\.\-] ]]; then
+                        rm -f "$f" 2>/dev/null
+                        continue
+                    fi
+                    # 3. 清理包含二进制/非UTF-8损坏字节的文件
+                    if [ -f "$f" ] && ! grep -I -q . "$f" 2>/dev/null; then
+                        rm -f "$f" 2>/dev/null
+                        continue
+                    fi
+                fi
+            done
+        fi
+    done
+}
+
 # 初始化环境
 init_env() {
     detect_package_manager
     detect_nginx_dirs
+    clean_corrupted_configs
 }
 
 # 确保 Nginx 已安装
