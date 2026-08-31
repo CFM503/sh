@@ -853,49 +853,74 @@ download_file() {
     
     local download_success=false
     
+    # 检查可用的下载工具
+    echo -e "${BLUE}检查下载工具...${NC}"
+    
     # 尝试使用curl
     if command -v curl &> /dev/null; then
+        echo -e "${BLUE}找到 curl: $(which curl)${NC}"
         echo -e "${BLUE}使用 curl 下载...${NC}"
-        curl -L --connect-timeout 10 --max-time 30 -o "$dest" "$url"
+        curl -v -L --connect-timeout 10 --max-time 60 -o "$dest" "$url" 2>&1
         if [ $? -eq 0 ] && [ -f "$dest" ] && [ -s "$dest" ]; then
             download_success=true
+            echo -e "${GREEN}curl 下载成功${NC}"
+        else
+            echo -e "${YELLOW}curl 下载失败，尝试其他方式...${NC}"
         fi
+    else
+        echo -e "${YELLOW}未找到 curl${NC}"
     fi
     
     # 如果curl失败，尝试wget
     if [ "$download_success" = false ] && command -v wget &> /dev/null; then
+        echo -e "${BLUE}找到 wget: $(which wget)${NC}"
         echo -e "${BLUE}使用 wget 下载...${NC}"
-        wget --timeout=10 -O "$dest" "$url"
+        wget --timeout=10 -O "$dest" "$url" 2>&1
         if [ $? -eq 0 ] && [ -f "$dest" ] && [ -s "$dest" ]; then
             download_success=true
+            echo -e "${GREEN}wget 下载成功${NC}"
+        else
+            echo -e "${YELLOW}wget 下载失败，尝试其他方式...${NC}"
         fi
+    else
+        echo -e "${YELLOW}未找到 wget${NC}"
     fi
     
     # 如果还是失败，尝试git clone
     if [ "$download_success" = false ] && command -v git &> /dev/null; then
+        echo -e "${BLUE}找到 git: $(which git)${NC}"
         echo -e "${BLUE}使用 git 下载...${NC}"
         local temp_dir="/tmp/sh_download_$$"
         rm -rf "$temp_dir"
-        git clone --depth 1 https://github.com/CFM503/sh.git "$temp_dir" 2>/dev/null
+        git clone --depth 1 https://github.com/CFM503/sh.git "$temp_dir" 2>&1
         if [ -f "$temp_dir/$filename" ]; then
             cp "$temp_dir/$filename" "$dest"
             rm -rf "$temp_dir"
             if [ -f "$dest" ] && [ -s "$dest" ]; then
                 download_success=true
+                echo -e "${GREEN}git 下载成功${NC}"
             fi
         else
             rm -rf "$temp_dir"
         fi
+    else
+        echo -e "${YELLOW}未找到 git${NC}"
     fi
     
     if [ "$download_success" = true ]; then
         echo -e "${GREEN}下载成功: ${filename}${NC}"
         chmod +x "$dest" 2>/dev/null
+        echo -e "${GREEN}文件大小: $(wc -c < "$dest") 字节${NC}"
         return 0
     else
         echo -e "${RED}下载失败: ${filename}${NC}"
         echo -e "${YELLOW}请手动下载: ${url}${NC}"
         echo -e "${YELLOW}保存到: ${dest}${NC}"
+        echo ""
+        echo -e "${YELLOW}手动下载命令:${NC}"
+        echo -e "${BLUE}curl -L -o ${dest} ${url}${NC}"
+        echo -e "${BLUE}或${NC}"
+        echo -e "${BLUE}wget -O ${dest} ${url}${NC}"
         return 1
     fi
 }
