@@ -306,15 +306,17 @@ create_proxy_conf() {
         return 0
     fi
     
-    # 生成 location 配置块
-    local location_block="
+    # 生成 location 配置块到临时文件
+    local tmpfile=$(mktemp)
+    cat > "$tmpfile" << EOF
+
 # 反向代理配置 - $(date)
 location $path {
     proxy_pass http://$upstream_host:$upstream_port;
     proxy_redirect off;
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection \"upgrade\";
+    proxy_set_header Connection "upgrade";
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -324,11 +326,12 @@ location $path {
     proxy_read_timeout 60s;
     proxy_buffering off;
     proxy_cache off;
-}"
+}
+EOF
     
-    # 在最后一个 } 之前插入 location 块
-    # 使用 sed 在最后一个 } 之前插入
-    sed -i "/^}/i\\${location_block}" "$CONF_FILE"
+    # 在最后一个 } 之前插入配置
+    sed -i "/^}/r $tmpfile" "$CONF_FILE"
+    rm -f "$tmpfile"
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}配置已添加: $path -> $upstream_host:$upstream_port${NC}"
