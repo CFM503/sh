@@ -4,6 +4,7 @@
 # 通用菜单框架 - 兼容所有Linux发行版
 # 适配: Debian, Ubuntu, CentOS, RHEL, Fedora,
 #       Arch, openSUSE, Alpine 等
+# 版本: 1.1.0
 #==============================================
 
 # 颜色定义
@@ -43,6 +44,7 @@ show_main_menu() {
     echo -e "${GREEN}10.${NC} 网络优化(BBR/TCP)"
     echo -e "${GREEN}11.${NC} Nginx配置"
     echo -e "${GREEN}12.${NC} 自定义功能"
+    echo -e "${GREEN}13.${NC} 更新/检查依赖"
     echo -e "${RED}0.${NC} 退出"
     echo -e "${CYAN}==============================${NC}"
     echo -n "请选择: "
@@ -835,14 +837,66 @@ check_updates() {
 }
 
 #==============================================
+# 自动下载功能
+#==============================================
+GITHUB_RAW="https://raw.githubusercontent.com/CFM503/sh/master"
+
+# 下载文件
+download_file() {
+    local filename="$1"
+    local url="${GITHUB_RAW}/${filename}"
+    local dest="${BASH_SOURCE[0]%/*}/${filename}"
+    
+    echo -e "${YELLOW}正在下载 ${filename}...${NC}"
+    
+    # 尝试使用curl
+    if command -v curl &> /dev/null; then
+        curl -sL -o "$dest" "$url"
+    # 尝试使用wget
+    elif command -v wget &> /dev/null; then
+        wget -q -O "$dest" "$url"
+    else
+        echo -e "${RED}错误: 未找到 curl 或 wget${NC}"
+        echo "请手动下载: $url"
+        return 1
+    fi
+    
+    if [ -f "$dest" ]; then
+        echo -e "${GREEN}下载成功: ${filename}${NC}"
+        chmod +x "$dest"
+        return 0
+    else
+        echo -e "${RED}下载失败: ${filename}${NC}"
+        return 1
+    fi
+}
+
+# 检查并下载依赖
+check_and_download() {
+    local filename="$1"
+    local filepath="${BASH_SOURCE[0]%/*}/${filename}"
+    
+    if [ ! -f "$filepath" ]; then
+        echo -e "${YELLOW}未找到 ${filename}，正在自动下载...${NC}"
+        download_file "$filename"
+    fi
+    
+    if [ -f "$filepath" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+#==============================================
 # 网络优化
 #==============================================
 network_optimize() {
-    if [ -f "${BASH_SOURCE[0]%/*}/network_optimize.sh" ]; then
+    if check_and_download "network_optimize.sh"; then
         bash "${BASH_SOURCE[0]%/*}/network_optimize.sh"
     else
-        echo -e "${RED}错误: 未找到 network_optimize.sh${NC}"
-        sleep 2
+        echo -e "${RED}错误: 无法下载 network_optimize.sh${NC}"
+        echo -e "${YELLOW}请手动下载: ${GITHUB_RAW}/network_optimize.sh${NC}"
     fi
 }
 
@@ -850,11 +904,11 @@ network_optimize() {
 # Nginx配置
 #==============================================
 nginx_setup() {
-    if [ -f "${BASH_SOURCE[0]%/*}/nginx_setup.sh" ]; then
+    if check_and_download "nginx_setup.sh"; then
         bash "${BASH_SOURCE[0]%/*}/nginx_setup.sh"
     else
-        echo -e "${RED}错误: 未找到 nginx_setup.sh${NC}"
-        sleep 2
+        echo -e "${RED}错误: 无法下载 nginx_setup.sh${NC}"
+        echo -e "${YELLOW}请手动下载: ${GITHUB_RAW}/nginx_setup.sh${NC}"
     fi
 }
 
@@ -895,12 +949,124 @@ custom_func3() {
 }
 
 #==============================================
+# 更新/检查依赖
+#==============================================
+update_dependencies() {
+    while true; do
+        show_submenu "更新/检查依赖" \
+            "检查所有依赖" \
+            "更新 network_optimize.sh" \
+            "更新 nginx_setup.sh" \
+            "更新所有依赖" \
+            "删除所有依赖"
+        
+        read choice
+        case $choice in
+            1) check_all_dependencies ;;
+            2) 
+                download_file "network_optimize.sh"
+                wait_for_user
+                ;;
+            3) 
+                download_file "nginx_setup.sh"
+                wait_for_user
+                ;;
+            4) update_all_dependencies ;;
+            5) delete_all_dependencies ;;
+            0) break ;;
+            *) echo "无效选择"; sleep 1 ;;
+        esac
+    done
+}
+
+check_all_dependencies() {
+    echo -e "\n${YELLOW}=== 依赖检查 ===${NC}"
+    
+    local files=("network_optimize.sh" "nginx_setup.sh")
+    local all_ok=true
+    
+    for file in "${files[@]}"; do
+        local filepath="${BASH_SOURCE[0]%/*}/${file}"
+        if [ -f "$filepath" ]; then
+            echo -e "${GREEN}✓ ${file} - 已存在${NC}"
+        else
+            echo -e "${RED}✗ ${file} - 缺少${NC}"
+            all_ok=false
+        fi
+    done
+    
+    echo ""
+    if [ "$all_ok" = true ]; then
+        echo -e "${GREEN}所有依赖文件已就绪${NC}"
+    else
+        echo -e "${YELLOW}发现缺少的依赖文件${NC}"
+        read -p "是否立即下载? (Y/n): " download_now
+        if [ "$download_now" != "n" ] && [ "$download_now" != "N" ]; then
+            update_all_dependencies
+        fi
+    fi
+    wait_for_user
+}
+
+update_all_dependencies() {
+    echo -e "\n${YELLOW}=== 更新所有依赖 ===${NC}"
+    
+    download_file "network_optimize.sh"
+    download_file "nginx_setup.sh"
+    
+    echo -e "\n${GREEN}更新完成!${NC}"
+    wait_for_user
+}
+
+delete_all_dependencies() {
+    echo -e "\n${RED}=== 删除所有依赖 ===${NC}"
+    echo -e "${RED}警告: 将删除所有子菜单文件!${NC}"
+    
+    read -p "确认删除? (y/N): " confirm
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        local files=("network_optimize.sh" "nginx_setup.sh")
+        for file in "${files[@]}"; do
+            local filepath="${BASH_SOURCE[0]%/*}/${file}"
+            if [ -f "$filepath" ]; then
+                rm -f "$filepath"
+                echo -e "${GREEN}已删除: ${file}${NC}"
+            fi
+        done
+        echo -e "${GREEN}删除完成!${NC}"
+    else
+        echo "已取消"
+    fi
+    wait_for_user
+}
+
+#==============================================
 # 主程序入口
 #==============================================
 main() {
     # 检查是否为root用户
     if [ "$EUID" -ne 0 ]; then
         echo "注意: 部分功能需要root权限"
+        sleep 1
+    fi
+    
+    # 检查依赖文件
+    echo -e "${BLUE}检查依赖文件...${NC}"
+    local missing=()
+    [ ! -f "${BASH_SOURCE[0]%/*}/network_optimize.sh" ] && missing+=("network_optimize.sh")
+    [ ! -f "${BASH_SOURCE[0]%/*}/nginx_setup.sh" ] && missing+=("nginx_setup.sh")
+    
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo -e "${YELLOW}发现缺少 ${#missing[@]} 个文件: ${missing[*]}${NC}"
+        read -p "是否自动下载? (Y/n): " auto_download
+        if [ "$auto_download" != "n" ] && [ "$auto_download" != "N" ]; then
+            for file in "${missing[@]}"; do
+                download_file "$file"
+            done
+            echo -e "${GREEN}下载完成!${NC}"
+            sleep 1
+        fi
+    else
+        echo -e "${GREEN}所有依赖文件已就绪${NC}"
         sleep 1
     fi
     
@@ -921,6 +1087,7 @@ main() {
             10) network_optimize ;;
             11) nginx_setup ;;
             12) custom_functions ;;
+            13) update_dependencies ;;
             0) 
                 echo -e "\n${GREEN}再见!${NC}"
                 exit 0
