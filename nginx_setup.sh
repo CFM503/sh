@@ -504,6 +504,83 @@ uninstall_nginx() {
     fi
 }
 
+# 恢复默认配置
+restore_default_config() {
+    echo -e "${YELLOW}恢复Nginx默认配置${NC}"
+    echo -e "${RED}警告: 将删除所有自定义配置!${NC}"
+    read -p "确认恢复? (y/N): " confirm
+    
+    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+        echo "已取消"
+        return
+    fi
+    
+    local nginx_type=$(detect_nginx_config_dir)
+    
+    # 备份当前配置
+    echo -e "${BLUE}备份当前配置...${NC}"
+    local backup_dir="/root/nginx_backup_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    if [ "$nginx_type" = "debian" ]; then
+        cp -r /etc/nginx/sites-available/ "$backup_dir/" 2>/dev/null
+        cp -r /etc/nginx/sites-enabled/ "$backup_dir/" 2>/dev/null
+    fi
+    cp -r /etc/nginx/conf.d/ "$backup_dir/" 2>/dev/null
+    echo -e "${GREEN}已备份到: $backup_dir${NC}"
+    
+    # 清理sites-enabled
+    if [ "$nginx_type" = "debian" ] && [ -d /etc/nginx/sites-enabled ]; then
+        rm -f /etc/nginx/sites-enabled/*
+    fi
+    
+    # 清理conf.d
+    if [ -d /etc/nginx/conf.d ]; then
+        rm -f /etc/nginx/conf.d/*.conf
+    fi
+    
+    # 生成默认配置
+    if [ "$nginx_type" = "debian" ]; then
+        cat > /etc/nginx/sites-available/default << 'EOF'
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    root /var/www/html;
+    index index.html index.htm index.nginx-debian.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+EOF
+        ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/
+    else
+        cat > /etc/nginx/conf.d/default.conf << 'EOF'
+server {
+    listen 80 default_server;
+    server_name _;
+
+    root /var/www/html;
+    index index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+EOF
+    fi
+    
+    # 测试配置
+    if nginx -t 2>&1; then
+        systemctl restart nginx 2>/dev/null || service nginx restart 2>/dev/null
+        echo -e "${GREEN}Nginx已恢复默认配置并重启${NC}"
+    else
+        echo -e "${RED}配置测试失败${NC}"
+    fi
+}
+
 # 主菜单
 main_menu() {
     while true; do
@@ -518,7 +595,8 @@ main_menu() {
         echo -e "${GREEN}5.${NC} 检查配置语法"
         echo -e "${GREEN}6.${NC} 重载Nginx"
         echo -e "${GREEN}7.${NC} 删除代理配置"
-        echo -e "${GREEN}8.${NC} 卸载Nginx"
+        echo -e "${GREEN}8.${NC} 恢复默认配置"
+        echo -e "${GREEN}9.${NC} 卸载Nginx"
         echo -e "${RED}0.${NC} 返回"
         echo -e "${CYAN}========================================${NC}"
         echo -n "请选择: "
@@ -545,6 +623,10 @@ main_menu() {
                 delete_proxy_config
                 ;;
             8)
+                check_root
+                restore_default_config
+                ;;
+            9)
                 check_root
                 uninstall_nginx
                 ;;
