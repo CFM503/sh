@@ -360,12 +360,19 @@ reload_nginx() {
         return 1
     fi
     
+    # 检查 Nginx 当前是否在运行，若未运行则直接启动
+    if ! pgrep nginx &>/dev/null; then
+        echo -e "${YELLOW}检测到 Nginx 服务未运行，正在启动服务...${NC}"
+        start_service
+        return $?
+    fi
+    
     if command -v systemctl &> /dev/null; then
-        systemctl reload nginx
+        systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null
     elif command -v service &> /dev/null; then
-        service nginx reload
+        service nginx reload 2>/dev/null || service nginx restart 2>/dev/null
     else
-        nginx -s reload
+        nginx -s reload 2>/dev/null || nginx
     fi
     
     if [ $? -eq 0 ]; then
@@ -874,18 +881,21 @@ show_config() {
     echo ""
     echo -e "${BLUE}3. 独立代理配置文件列表:${NC}"
     local count=0
-    for f in /etc/nginx/conf.d/proxy_*.conf /etc/nginx/sites-available/proxy_*.conf; do
+    for f in "${ENABLED_CONF_DIR}"/proxy_*.conf; do
         if [ -f "$f" ]; then
+            if ! grep -I -q . "$f" 2>/dev/null; then
+                continue
+            fi
             count=$((count + 1))
-            local l_port=$(grep -E '^[[:space:]]*listen' "$f" | head -1 | tr -s ' ' | xargs)
-            local s_name=$(grep -E '^[[:space:]]*server_name' "$f" | head -1 | tr -s ' ' | xargs)
-            local p_pass=$(grep -E '^[[:space:]]*proxy_pass' "$f" | head -1 | tr -s ' ' | xargs)
+            local l_port=$(grep -I -E '^[[:space:]]*listen' "$f" | head -1 | tr -s ' ' | xargs)
+            local s_name=$(grep -I -E '^[[:space:]]*server_name' "$f" | head -1 | tr -s ' ' | xargs)
+            local p_pass=$(grep -I -E '^[[:space:]]*proxy_pass' "$f" | head -1 | tr -s ' ' | xargs)
             echo -e "   ${GREEN}[$count]${NC} $f"
             [ -n "$l_port" ] && echo -e "       $l_port | $s_name"
             [ -n "$p_pass" ] && echo -e "       $p_pass"
         fi
     done
-    [ $count -eq 0 ] && echo -e "   ${YELLOW}(暂无独立代理配置文件)${NC}"
+    [ $count -eq 0 ] && echo -e "   ${YELLOW}(暂无已启用的独立代理配置文件)${NC}"
     
     # 默认站点中的路径反代
     echo ""
@@ -893,12 +903,15 @@ show_config() {
     local loc_count=0
     for conf in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf /etc/nginx/nginx.conf; do
         if [ -f "$conf" ] && [[ "$conf" != *"00_websocket_map.conf"* ]]; then
+            if ! grep -I -q . "$conf" 2>/dev/null; then
+                continue
+            fi
             local matches
-            matches=$(grep -n -C 2 "proxy_pass" "$conf" 2>/dev/null)
+            matches=$(grep -I -n -C 2 "proxy_pass" "$conf" 2>/dev/null)
             if [ -n "$matches" ]; then
                 loc_count=$((loc_count + 1))
                 echo -e "   ${CYAN}--- 来自文件: ${conf} ---${NC}"
-                grep -E "location|proxy_pass" "$conf" 2>/dev/null | sed 's/^[[:space:]]*/     /'
+                grep -I -E "location|proxy_pass" "$conf" 2>/dev/null | sed 's/^[[:space:]]*/     /'
             fi
         fi
     done
@@ -918,14 +931,17 @@ test_all_proxies_connectivity() {
     
     local found=0
     
-    # 1. 扫描独立配置文件
-    for f in /etc/nginx/conf.d/proxy_*.conf /etc/nginx/sites-available/proxy_*.conf; do
+    # 1. 扫描已启用的独立配置文件 (过滤非文本文件)
+    for f in "${ENABLED_CONF_DIR}"/proxy_*.conf; do
         if [ -f "$f" ]; then
+            if ! grep -I -q . "$f" 2>/dev/null; then
+                continue
+            fi
             found=$((found + 1))
-            local l_port=$(grep -E '^[[:space:]]*listen' "$f" | head -1 | awk '{print $2}' | tr -d ';')
-            local p_path=$(grep -E '^[[:space:]]*location' "$f" | head -1 | awk '{print $2}' | tr -d '{')
-            local p_pass=$(grep -E '^[[:space:]]*proxy_pass' "$f" | head -1 | awk '{print $2}' | tr -d ';')
-            local s_name=$(grep -E '^[[:space:]]*server_name' "$f" | head -1 | awk '{print $2}' | tr -d ';')
+            local l_port=$(grep -I -E '^[[:space:]]*listen' "$f" | head -1 | awk '{print $2}' | tr -d ';')
+            local p_path=$(grep -I -E '^[[:space:]]*location' "$f" | head -1 | awk '{print $2}' | tr -d '{')
+            local p_pass=$(grep -I -E '^[[:space:]]*proxy_pass' "$f" | head -1 | awk '{print $2}' | tr -d ';')
+            local s_name=$(grep -I -E '^[[:space:]]*server_name' "$f" | head -1 | awk '{print $2}' | tr -d ';')
             
             l_port=${l_port:-80}
             p_path=${p_path:-/}
@@ -1051,7 +1067,7 @@ delete_proxy_config() {
         local base_name
         base_name=$(basename "$target")
         rm -f "$target"
-        rm -f "/etc/nginx/sites-enabled/${base_name}" 2>/dev/null
+        rm -f "/etc/nginx/sites-available/${base_name}" "/etc/nginx/sites-enabled/${base_name}" "/etc/nginx/conf.d/${base_name}" 2>/dev/null
         
         if test_config_silent; then
             echo -e "${GREEN}✓ 代理配置文件已删除${NC}"
