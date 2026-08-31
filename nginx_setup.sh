@@ -398,6 +398,103 @@ test_config_silent() {
     return $?
 }
 
+# 获取公网 IP (用于生成可直接访问的测试 URL)
+get_public_ip() {
+    local ip
+    ip=$(curl -s -m 2 http://ip.sb 2>/dev/null || curl -s -m 2 https://api.ipify.org 2>/dev/null || curl -s -m 2 http://ifconfig.me 2>/dev/null)
+    [ -z "$ip" ] && ip="127.0.0.1"
+    echo "$ip"
+}
+
+# 验证单个反向代理规则并输出直观的成功/失败连通性检测报告
+verify_proxy_rule() {
+    local listen_port="${1:-80}"
+    local proxy_path="${2:-/}"
+    local upstream_host="${3:-127.0.0.1}"
+    local upstream_port="$4"
+    local server_name="${5:-_}"
+    
+    [[ "$proxy_path" != /* ]] && proxy_path="/$proxy_path"
+    local pub_ip
+    pub_ip=$(get_public_ip)
+    
+    echo ""
+    echo -e "${CYAN}======================================================${NC}"
+    echo -e "${CYAN}             反向代理设置与连通性检测报告${NC}"
+    echo -e "${CYAN}======================================================${NC}"
+    
+    # 1. 检测 Nginx 自身是否在运行并监听端口
+    local nginx_listen="no"
+    if ss -tulpn 2>/dev/null | grep ":${listen_port}[[:space:]]" | grep -q "nginx"; then
+        nginx_listen="yes"
+    elif pgrep nginx &>/dev/null && [ "$listen_port" = "80" ]; then
+        nginx_listen="yes"
+    fi
+    
+    # 2. 检测后端目标程序端口监听状态
+    local backend_listen="no"
+    local backend_proc=""
+    if [ "$upstream_host" = "127.0.0.1" ] || [ "$upstream_host" = "localhost" ]; then
+        if command -v ss &>/dev/null; then
+            local ss_out
+            ss_out=$(ss -tulpn 2>/dev/null | grep ":${upstream_port} ")
+            if [ -n "$ss_out" ]; then
+                backend_listen="yes"
+                backend_proc=$(echo "$ss_out" | awk -F'users:' '{print $2}' | tr -d '()' | xargs)
+            fi
+        fi
+    fi
+    
+    # 3. 本地发包模拟 HTTP 探测
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -m 3 "http://127.0.0.1:${listen_port}${proxy_path}" 2>/dev/null)
+    
+    echo -e " [1] 配置语法测试:   ${GREEN}✓ 语法检测通过，已成功加载${NC}"
+    
+    if [ "$nginx_listen" = "yes" ]; then
+        echo -e " [2] Nginx 监听端口: ${GREEN}● 端口 ${listen_port} 正常监听${NC}"
+    else
+        echo -e " [2] Nginx 监听端口: ${RED}○ 端口 ${listen_port} 未检测到监听${NC}"
+    fi
+    
+    if [ "$backend_listen" = "yes" ]; then
+        echo -e " [3] 后端服务状态:   ${GREEN}● 目标 ${upstream_host}:${upstream_port} 正常运行${NC} ${CYAN}(${backend_proc})${NC}"
+    elif [ "$upstream_host" = "127.0.0.1" ] || [ "$upstream_host" = "localhost" ]; then
+        echo -e " [3] 后端服务状态:   ${YELLOW}○ 端口 ${upstream_port} 暂无进程监听 (请确保后端程序已启动)${NC}"
+    else
+        echo -e " [3] 后端服务状态:   ${BLUE}○ 远程目标主机: ${upstream_host}:${upstream_port}${NC}"
+    fi
+    
+    if [ -n "$http_code" ] && [ "$http_code" != "000" ]; then
+        if [ "$http_code" = "200" ] || [ "$http_code" = "301" ] || [ "$http_code" = "302" ] || [ "$http_code" = "400" ] || [ "$http_code" = "404" ]; then
+            echo -e " [4] HTTP 探测响应:  ${GREEN}✓ HTTP 状态码 ${http_code} (反代链路正常打通)${NC}"
+        elif [ "$http_code" = "502" ] || [ "$http_code" = "504" ]; then
+            echo -e " [4] HTTP 探测响应:  ${YELLOW}▲ HTTP 状态码 ${http_code} (Nginx正常，但后端未开启或无响应)${NC}"
+        else
+            echo -e " [4] HTTP 探测响应:  ${BLUE}HTTP 状态码 ${http_code}${NC}"
+        fi
+    else
+        echo -e " [4] HTTP 探测响应:  ${YELLOW}○ 暂无 HTTP 响应 (连接超时或未响应)${NC}"
+    fi
+    
+    local show_url="http://${pub_ip}"
+    [ "$listen_port" != "80" ] && show_url="${show_url}:${listen_port}"
+    show_url="${show_url}${proxy_path}"
+    
+    echo -e " [5] 外部访问测试URL: ${GREEN}${show_url}${NC}"
+    echo -e "${CYAN}======================================================${NC}"
+    
+    if [ "$nginx_listen" = "yes" ] && ([ "$backend_listen" = "yes" ] || [ "$upstream_host" != "127.0.0.1" ]); then
+        echo -e "${GREEN}  ✓ 反向代理设置【成功生效】！${NC}"
+    elif [ "$nginx_listen" = "yes" ]; then
+        echo -e "${YELLOW}  ✓ Nginx 代理配置已就绪！(待后端在端口 ${upstream_port} 启动后即可正常使用)${NC}"
+    else
+        echo -e "${RED}  ✗ 配置建立完成但 Nginx 服务未运行，请检查服务状态${NC}"
+    fi
+    echo -e "${CYAN}======================================================${NC}"
+    echo ""
+}
+
 #====================================================
 # 反向代理配置管理 (模块化设计，永不破坏原有默认配置)
 #====================================================
@@ -502,6 +599,7 @@ EOF
     if test_config_silent; then
         echo -e "${GREEN}✓ 独立代理配置创建成功: ${conf_file}${NC}"
         reload_nginx
+        verify_proxy_rule "$listen_port" "$proxy_path" "$upstream_host" "$upstream_port" "$server_name"
         return 0
     else
         echo -e "${RED}✗ 新建配置导致语法错误，正在自动撤销...${NC}"
@@ -643,6 +741,7 @@ EOF
         echo -e "${GREEN}✓ 路径反代配置成功注入到 ${def_conf}${NC}"
         echo -e "${BLUE}备份文件保存在: ${backup_file}${NC}"
         reload_nginx
+        verify_proxy_rule "80" "$proxy_path" "$upstream_host" "$upstream_port"
         return 0
     else
         echo -e "${RED}✗ 配置注入后语法测试失败，正在启动紧急安全回滚...${NC}"
@@ -807,6 +906,77 @@ show_config() {
     
     echo -e "${CYAN}========================================${NC}"
     echo ""
+}
+
+# 全量检测所有已配置代理的连通性与 HTTP 响应
+test_all_proxies_connectivity() {
+    init_env
+    echo ""
+    echo -e "${CYAN}======================================================${NC}"
+    echo -e "${CYAN}          全量检测 Nginx 反向代理连通性${NC}"
+    echo -e "${CYAN}======================================================${NC}"
+    
+    local found=0
+    
+    # 1. 扫描独立配置文件
+    for f in /etc/nginx/conf.d/proxy_*.conf /etc/nginx/sites-available/proxy_*.conf; do
+        if [ -f "$f" ]; then
+            found=$((found + 1))
+            local l_port=$(grep -E '^[[:space:]]*listen' "$f" | head -1 | awk '{print $2}' | tr -d ';')
+            local p_path=$(grep -E '^[[:space:]]*location' "$f" | head -1 | awk '{print $2}' | tr -d '{')
+            local p_pass=$(grep -E '^[[:space:]]*proxy_pass' "$f" | head -1 | awk '{print $2}' | tr -d ';')
+            local s_name=$(grep -E '^[[:space:]]*server_name' "$f" | head -1 | awk '{print $2}' | tr -d ';')
+            
+            l_port=${l_port:-80}
+            p_path=${p_path:-/}
+            
+            local up_host="127.0.0.1"
+            local up_port="80"
+            if [[ "$p_pass" =~ http://([^:]+):([0-9]+) ]]; then
+                up_host="${BASH_REMATCH[1]}"
+                up_port="${BASH_REMATCH[2]}"
+            fi
+            
+            echo -e "${BLUE}>>> 独立站点代理: $(basename "$f")${NC}"
+            verify_proxy_rule "$l_port" "$p_path" "$up_host" "$up_port" "$s_name"
+        fi
+    done
+    
+    # 2. 扫描默认站点中的路径反代
+    local def_conf
+    def_conf=$(find_default_server_conf)
+    if [ -n "$def_conf" ] && [ -f "$def_conf" ]; then
+        local loc_lines
+        loc_lines=$(grep -nE '^[[:space:]]*location[[:space:]]+/[^[:space:]]*' "$def_conf" 2>/dev/null | grep -vE 'location[[:space:]]*/[[:space:]]*\{')
+        if [ -n "$loc_lines" ]; then
+            while IFS= read -r item; do
+                [ -z "$item" ] && continue
+                local line_no=$(echo "$item" | cut -d: -f1)
+                local content_part=$(echo "$item" | cut -d: -f2-)
+                local loc_path=$(echo "$content_part" | awk '{print $2}' | tr -d '{')
+                [ -z "$loc_path" ] && continue
+                
+                local p_pass
+                p_pass=$(tail -n +"$line_no" "$def_conf" | head -15 | grep -E '^[[:space:]]*proxy_pass' | head -1 | awk '{print $2}' | tr -d ';')
+                if [ -n "$p_pass" ]; then
+                    found=$((found + 1))
+                    local up_host="127.0.0.1"
+                    local up_port="80"
+                    if [[ "$p_pass" =~ http://([^:]+):([0-9]+) ]]; then
+                        up_host="${BASH_REMATCH[1]}"
+                        up_port="${BASH_REMATCH[2]}"
+                    fi
+                    echo -e "${BLUE}>>> 默认站点路径代理: ${loc_path} (位于 $(basename "$def_conf"))${NC}"
+                    verify_proxy_rule "80" "$loc_path" "$up_host" "$up_port" "_"
+                fi
+            done <<< "$loc_lines"
+        fi
+    fi
+    
+    if [ $found -eq 0 ]; then
+        echo -e "${YELLOW}未检测到任何反向代理规则配置${NC}"
+        echo -e "${CYAN}======================================================${NC}"
+    fi
 }
 
 # 删除代理配置 (支持选择序号删除)
@@ -1117,13 +1287,14 @@ main_menu() {
         echo -e "${GREEN}3.${NC} 查看状态与当前代理配置"
         echo -e "${GREEN}4.${NC} 添加反向代理 (支持路径/独立站点/WS)"
         echo -e "${GREEN}5.${NC} 快捷添加预设代理 (/pyway -> 2052)"
-        echo -e "${GREEN}6.${NC} 检查配置语法 (nginx -t)"
-        echo -e "${GREEN}7.${NC} 删除代理配置 (支持编号选择)"
-        echo -e "${GREEN}8.${NC} 恢复初始配置 (官方出厂还原 / 默认重置)"
-        echo -e "${GREEN}9.${NC} 卸载 Nginx"
+        echo -e "${GREEN}6.${NC} 测试代理连通性 (实时探测 HTTP 与后端状态)"
+        echo -e "${GREEN}7.${NC} 检查配置语法 (nginx -t)"
+        echo -e "${GREEN}8.${NC} 删除代理配置 (支持编号选择)"
+        echo -e "${GREEN}9.${NC} 恢复初始配置 (官方出厂还原 / 默认重置)"
+        echo -e "${GREEN}10.${NC} 卸载 Nginx"
         echo -e "${RED}0.${NC} 返回"
         echo -e "${CYAN}========================================${NC}"
-        echo -n "请选择操作 [0-9]: "
+        echo -n "请选择操作 [0-10]: "
         
         read -r choice || break
         case "$choice" in
@@ -1158,15 +1329,18 @@ main_menu() {
                 preset_pyway
                 ;;
             6)
-                test_config
+                test_all_proxies_connectivity
                 ;;
             7)
-                delete_proxy_config
+                test_config
                 ;;
             8)
-                restore_default_config
+                delete_proxy_config
                 ;;
             9)
+                restore_default_config
+                ;;
+            10)
                 check_root
                 uninstall_nginx
                 ;;
@@ -1174,7 +1348,7 @@ main_menu() {
                 break
                 ;;
             *)
-                echo -e "${RED}无效选择，请输入 0-9${NC}"
+                echo -e "${RED}无效选择，请输入 0-10${NC}"
                 sleep 1
                 ;;
         esac
