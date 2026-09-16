@@ -2,14 +2,15 @@
 
 #====================================================
 # Nginx 管理与反向代理配置脚本
-# 版本: 1.5.0
+# 版本: 1.6.0
 # 功能: 自动安装/卸载Nginx、安全配置反向代理(WebSocket)、
-#       查看状态、删除代理、一键修复/恢复出厂默认配置
+#       查看状态、删除代理、一键修复/恢复出厂默认配置、
+#       网站首页模板与伪装(小游戏/个人博客/隐形跳转)
 # 适配: Debian / Ubuntu / CentOS / RHEL / Fedora / Arch / Alpine
 #====================================================
 
-SCRIPT_VERSION="1.5.0"
-VERSION="1.5.0"
+SCRIPT_VERSION="1.6.0"
+VERSION="1.6.0"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -1322,6 +1323,997 @@ restore_default_config() {
 }
 
 #====================================================
+# 网站首页模板与伪装发布管理
+#====================================================
+
+# 探测 Nginx Web 根目录
+get_nginx_web_root() {
+    local root_path=""
+    # 1. 尝试从活动配置文件中解析
+    for conf in /etc/nginx/sites-available/default /etc/nginx/conf.d/default.conf /etc/nginx/nginx.conf; do
+        if [ -f "$conf" ]; then
+            root_path=$(grep -E '^[ \t]*root[ \t]+' "$conf" 2>/dev/null | awk '{print $2}' | tr -d ';' | head -n 1)
+            [ -n "$root_path" ] && break
+        fi
+    done
+    # 2. 检查系统常见默认目录
+    if [ -z "$root_path" ] || [ ! -d "$root_path" ]; then
+        for p in /var/www/html /usr/share/nginx/html /var/www /var/www/localhost/htdocs; do
+            if [ -d "$p" ]; then
+                root_path="$p"
+                break
+            fi
+        done
+    fi
+    [ -z "$root_path" ] && root_path="/var/www/html"
+    mkdir -p "$root_path" 2>/dev/null
+    echo "$root_path"
+}
+
+# 备份现有 index.html
+backup_index_html() {
+    local root_dir="$1"
+    if [ -f "$root_dir/index.html" ]; then
+        local bak="$root_dir/index.html.bak_$(date +%Y%m%d_%H%M%S)"
+        cp "$root_dir/index.html" "$bak"
+        echo -e "${GREEN}✓ 已备份原主页至: ${bak}${NC}"
+    fi
+}
+
+# 1. 部署 2048 小游戏
+deploy_game_2048() {
+    local root_dir
+    root_dir=$(get_nginx_web_root)
+    backup_index_html "$root_dir"
+    local target_file="$root_dir/index.html"
+    
+    cat > "$target_file" << 'EOF'
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>2048 - 经典益智数字拼图</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+body {
+    background: #faf8ef; color: #776e65; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 15px;
+}
+.header { width: 100%; max-width: 400px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+.title { font-size: 46px; font-weight: bold; color: #776e65; line-height: 1; }
+.scores { display: flex; gap: 8px; }
+.score-box { background: #bbada0; color: #fff; border-radius: 6px; padding: 6px 12px; text-align: center; min-width: 70px; }
+.score-title { font-size: 11px; text-transform: uppercase; font-weight: 600; opacity: 0.8; }
+.score-val { font-size: 18px; font-weight: bold; }
+.toolbar { width: 100%; max-width: 400px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+.intro { font-size: 13px; color: #8f7a66; }
+.btn-restart { background: #8f7a66; color: #f9f6f2; border: none; border-radius: 6px; padding: 8px 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+.btn-restart:hover { background: #9f8b77; }
+.game-container {
+    width: 100%; max-width: 400px; height: 400px; background: #bbada0; border-radius: 8px; padding: 12px; position: relative;
+    touch-action: none;
+}
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 12px; width: 100%; height: 100%; }
+.cell { background: rgba(238, 228, 218, 0.35); border-radius: 6px; }
+.tile-container { position: absolute; top: 12px; left: 12px; right: 12px; bottom: 12px; }
+.tile {
+    position: absolute; width: calc((100% - 36px) / 4); height: calc((100% - 36px) / 4);
+    border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 28px;
+    transition: transform 100ms ease-in-out;
+}
+.tile-2 { background: #eee4da; color: #776e65; }
+.tile-4 { background: #ede0c8; color: #776e65; }
+.tile-8 { background: #f2b179; color: #f9f6f2; }
+.tile-16 { background: #f59563; color: #f9f6f2; }
+.tile-32 { background: #f67c5f; color: #f9f6f2; }
+.tile-64 { background: #f65e3b; color: #f9f6f2; }
+.tile-128 { background: #edcf72; color: #f9f6f2; font-size: 24px; box-shadow: 0 0 10px rgba(243, 215, 116, 0.4); }
+.tile-256 { background: #edcc61; color: #f9f6f2; font-size: 24px; box-shadow: 0 0 12px rgba(243, 215, 116, 0.5); }
+.tile-512 { background: #edc850; color: #f9f6f2; font-size: 24px; box-shadow: 0 0 15px rgba(243, 215, 116, 0.6); }
+.tile-1024 { background: #edc53f; color: #f9f6f2; font-size: 20px; box-shadow: 0 0 18px rgba(243, 215, 116, 0.7); }
+.tile-2048 { background: #edc22e; color: #f9f6f2; font-size: 20px; box-shadow: 0 0 22px rgba(243, 215, 116, 0.8); }
+.overlay {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(238, 228, 218, 0.78);
+    display: none; flex-direction: column; align-items: center; justify-content: center; border-radius: 8px; z-index: 10;
+}
+.overlay.active { display: flex; animation: fadeIn 0.4s ease forwards; }
+.overlay-msg { font-size: 32px; font-weight: bold; color: #776e65; margin-bottom: 16px; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+</style>
+</head>
+<body>
+<div class="header">
+    <div class="title">2048</div>
+    <div class="scores">
+        <div class="score-box"><div class="score-title">得分</div><div id="score" class="score-val">0</div></div>
+        <div class="score-box"><div class="score-title">最高分</div><div id="best" class="score-val">0</div></div>
+    </div>
+</div>
+<div class="toolbar">
+    <div class="intro">滑动或按方向键合并数字至 <strong>2048</strong>！</div>
+    <button class="btn-restart" onclick="game.init()">新游戏</button>
+</div>
+<div class="game-container" id="board">
+    <div class="grid">
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+    </div>
+    <div class="tile-container" id="tileContainer"></div>
+    <div class="overlay" id="overlay">
+        <div class="overlay-msg" id="overlayMsg">游戏结束</div>
+        <button class="btn-restart" onclick="game.init()">再玩一次</button>
+    </div>
+</div>
+
+<script>
+class Game2048 {
+    constructor() {
+        this.size = 4;
+        this.board = [];
+        this.score = 0;
+        this.best = parseInt(localStorage.getItem('2048_best') || '0', 10);
+        document.getElementById('best').innerText = this.best;
+        this.init();
+        this.setupInputs();
+    }
+    init() {
+        this.board = Array(this.size).fill(0).map(() => Array(this.size).fill(0));
+        this.score = 0;
+        document.getElementById('score').innerText = 0;
+        document.getElementById('overlay').classList.remove('active');
+        this.addTile();
+        this.addTile();
+        this.render();
+    }
+    addTile() {
+        let empty = [];
+        for (let r = 0; r < this.size; r++) {
+            for (let c = 0; c < this.size; c++) {
+                if (this.board[r][c] === 0) empty.push({ r, c });
+            }
+        }
+        if (empty.length > 0) {
+            let { r, c } = empty[Math.floor(Math.random() * empty.length)];
+            this.board[r][c] = Math.random() < 0.9 ? 2 : 4;
+        }
+    }
+    render() {
+        const container = document.getElementById('tileContainer');
+        container.innerHTML = '';
+        for (let r = 0; r < this.size; r++) {
+            for (let c = 0; c < this.size; c++) {
+                const val = this.board[r][c];
+                if (val !== 0) {
+                    const tile = document.createElement('div');
+                    tile.className = `tile tile-${val > 2048 ? 2048 : val}`;
+                    tile.style.transform = `translate(${c * 100}%, ${r * 100}%)`;
+                    tile.innerText = val;
+                    container.appendChild(tile);
+                }
+            }
+        }
+    }
+    move(dir) {
+        let moved = false;
+        let prev = JSON.stringify(this.board);
+        if (dir === 'left') {
+            for (let r = 0; r < this.size; r++) this.board[r] = this.slide(this.board[r]);
+        } else if (dir === 'right') {
+            for (let r = 0; r < this.size; r++) this.board[r] = this.slide(this.board[r].reverse()).reverse();
+        } else if (dir === 'up') {
+            for (let c = 0; c < this.size; c++) {
+                let col = [this.board[0][c], this.board[1][c], this.board[2][c], this.board[3][c]];
+                col = this.slide(col);
+                for (let r = 0; r < this.size; r++) this.board[r][c] = col[r];
+            }
+        } else if (dir === 'down') {
+            for (let c = 0; c < this.size; c++) {
+                let col = [this.board[3][c], this.board[2][c], this.board[1][c], this.board[0][c]];
+                col = this.slide(col);
+                for (let r = 0; r < this.size; r++) this.board[r][c] = col[3 - r];
+            }
+        }
+        if (JSON.stringify(this.board) !== prev) {
+            this.addTile();
+            this.render();
+            this.checkGameOver();
+        }
+    }
+    slide(row) {
+        let arr = row.filter(v => v !== 0);
+        for (let i = 0; i < arr.length - 1; i++) {
+            if (arr[i] === arr[i + 1]) {
+                arr[i] *= 2;
+                this.score += arr[i];
+                arr.splice(i + 1, 1);
+                if (this.score > this.best) {
+                    this.best = this.score;
+                    localStorage.setItem('2048_best', this.best);
+                    document.getElementById('best').innerText = this.best;
+                }
+                document.getElementById('score').innerText = this.score;
+            }
+        }
+        while (arr.length < this.size) arr.push(0);
+        return arr;
+    }
+    checkGameOver() {
+        for (let r = 0; r < this.size; r++) {
+            for (let c = 0; c < this.size; c++) {
+                if (this.board[r][c] === 0) return;
+                if (c < this.size - 1 && this.board[r][c] === this.board[r][c + 1]) return;
+                if (r < this.size - 1 && this.board[r][c] === this.board[r + 1][c]) return;
+            }
+        }
+        document.getElementById('overlayMsg').innerText = "游戏结束";
+        document.getElementById('overlay').classList.add('active');
+    }
+    setupInputs() {
+        window.addEventListener('keydown', e => {
+            if (['ArrowLeft', 'KeyA'].includes(e.code)) this.move('left');
+            else if (['ArrowRight', 'KeyD'].includes(e.code)) this.move('right');
+            else if (['ArrowUp', 'KeyW'].includes(e.code)) this.move('up');
+            else if (['ArrowDown', 'KeyS'].includes(e.code)) this.move('down');
+        });
+        let startX, startY;
+        const el = document.getElementById('board');
+        el.addEventListener('touchstart', e => {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+        }, { passive: true });
+        el.addEventListener('touchend', e => {
+            if (!startX || !startY) return;
+            let dx = e.changedTouches[0].clientX - startX;
+            let dy = e.changedTouches[0].clientY - startY;
+            if (Math.max(Math.abs(dx), Math.abs(dy)) > 25) {
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    this.move(dx > 0 ? 'right' : 'left');
+                } else {
+                    this.move(dy > 0 ? 'down' : 'up');
+                }
+            }
+            startX = startY = null;
+        }, { passive: true });
+    }
+}
+const game = new Game2048();
+</script>
+</body>
+</html>
+EOF
+    echo -e "${GREEN}======================================================${NC}"
+    echo -e "${GREEN}  ✓ 经典 2048 小游戏已成功部署至站点首页！${NC}"
+    echo -e "${GREEN}  文件路径: ${target_file}${NC}"
+    echo -e "${GREEN}======================================================${NC}"
+    wait_for_user
+}
+
+# 2. 部署霓虹赛博贪吃蛇小游戏
+deploy_game_snake() {
+    local root_dir
+    root_dir=$(get_nginx_web_root)
+    backup_index_html "$root_dir"
+    local target_file="$root_dir/index.html"
+    
+    cat > "$target_file" << 'EOF'
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>霓虹赛博贪吃蛇</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+body {
+    background: #0d1117; color: #00ffcc; font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 10px;
+}
+.header { width: 100%; max-width: 360px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.title { font-size: 24px; font-weight: 800; text-shadow: 0 0 10px #00ffcc; }
+.stats { display: flex; gap: 10px; }
+.stat-box { background: rgba(0,255,204,0.1); border: 1px solid #00ffcc; border-radius: 6px; padding: 4px 10px; text-align: center; }
+.stat-lbl { font-size: 10px; opacity: 0.8; }
+.stat-val { font-size: 16px; font-weight: bold; }
+#gameCanvas {
+    background: #080a0f; border: 2px solid #00ffcc; border-radius: 8px; box-shadow: 0 0 16px rgba(0,255,204,0.25);
+    max-width: 100%; display: block;
+}
+.d-pad { margin-top: 15px; display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(2, 50px); gap: 6px; }
+.d-btn {
+    background: rgba(0,255,204,0.15); border: 1px solid #00ffcc; color: #00ffcc; border-radius: 8px;
+    font-size: 20px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+    touch-action: manipulation;
+}
+.d-btn:active { background: #00ffcc; color: #080a0f; }
+.btn-up { grid-column: 2; grid-row: 1; }
+.btn-left { grid-column: 1; grid-row: 2; }
+.btn-down { grid-column: 2; grid-row: 2; }
+.btn-right { grid-column: 3; grid-row: 2; }
+.tip { font-size: 12px; color: #8b949e; margin-top: 10px; text-align: center; }
+.overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(8,10,15,0.85);
+    display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 20; border-radius: 8px;
+}
+.overlay.active { display: flex; }
+.btn-restart {
+    background: #00ffcc; color: #080a0f; font-weight: bold; border: none; padding: 10px 24px; border-radius: 6px;
+    cursor: pointer; font-size: 16px; box-shadow: 0 0 12px #00ffcc; margin-top: 12px;
+}
+</style>
+</head>
+<body>
+<div class="header">
+    <div class="title">NEON SNAKE</div>
+    <div class="stats">
+        <div class="stat-box"><div class="stat-lbl">得分</div><div id="score" class="stat-val">0</div></div>
+        <div class="stat-box"><div class="stat-lbl">最高分</div><div id="best" class="stat-val">0</div></div>
+    </div>
+</div>
+<div style="position: relative;">
+    <canvas id="gameCanvas" width="340" height="340"></canvas>
+    <div class="overlay" id="overlay">
+        <h2 style="color: #ff007f; text-shadow: 0 0 12px #ff007f; font-size: 28px;">GAME OVER</h2>
+        <p style="margin-top: 8px; color: #8b949e;">最终得分: <span id="finalScore" style="color: #00ffcc; font-weight: bold;">0</span></p>
+        <button class="btn-restart" onclick="game.start()">重新开始</button>
+    </div>
+</div>
+<div class="d-pad">
+    <div class="d-btn btn-up" onclick="game.setDir(0,-1)">▲</div>
+    <div class="d-btn btn-left" onclick="game.setDir(-1,0)">◀</div>
+    <div class="d-btn btn-down" onclick="game.setDir(0,1)">▼</div>
+    <div class="d-btn btn-right" onclick="game.setDir(1,0)">▶</div>
+</div>
+<div class="tip">电脑键盘按 W A S D 或方向键控制</div>
+
+<script>
+class NeonSnake {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.grid = 17;
+        this.count = this.canvas.width / this.grid;
+        this.best = parseInt(localStorage.getItem('neon_snake_best') || '0', 10);
+        document.getElementById('best').innerText = this.best;
+        this.start();
+        this.setupKeys();
+    }
+    start() {
+        this.snake = [{ x: 8, y: 8 }, { x: 7, y: 8 }, { x: 6, y: 8 }];
+        this.dir = { x: 1, y: 0 };
+        this.nextDir = { x: 1, y: 0 };
+        this.score = 0;
+        this.food = this.spawnFood();
+        this.over = false;
+        document.getElementById('score').innerText = 0;
+        document.getElementById('overlay').classList.remove('active');
+        if (this.timer) clearInterval(this.timer);
+        this.timer = setInterval(() => this.update(), 110);
+    }
+    setDir(x, y) {
+        if (this.dir.x + x !== 0 || this.dir.y + y !== 0) {
+            this.nextDir = { x, y };
+        }
+    }
+    spawnFood() {
+        let f;
+        while (!f || this.snake.some(s => s.x === f.x && s.y === f.y)) {
+            f = { x: Math.floor(Math.random() * this.count), y: Math.floor(Math.random() * this.count) };
+        }
+        return f;
+    }
+    update() {
+        if (this.over) return;
+        this.dir = { ...this.nextDir };
+        const head = { x: this.snake[0].x + this.dir.x, y: this.snake[0].y + this.dir.y };
+        if (head.x < 0 || head.x >= this.count || head.y < 0 || head.y >= this.count ||
+            this.snake.some(s => s.x === head.x && s.y === head.y)) {
+            this.gameOver();
+            return;
+        }
+        this.snake.unshift(head);
+        if (head.x === this.food.x && head.y === this.food.y) {
+            this.score += 10;
+            document.getElementById('score').innerText = this.score;
+            if (this.score > this.best) {
+                this.best = this.score;
+                localStorage.setItem('neon_snake_best', this.best);
+                document.getElementById('best').innerText = this.best;
+            }
+            this.food = this.spawnFood();
+        } else {
+            this.snake.pop();
+        }
+        this.draw();
+    }
+    draw() {
+        this.ctx.fillStyle = '#080a0f';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.strokeStyle = 'rgba(0, 255, 204, 0.05)';
+        for (let i = 0; i < this.count; i++) {
+            this.ctx.beginPath(); this.ctx.moveTo(i * this.grid, 0); this.ctx.lineTo(i * this.grid, this.canvas.height); this.ctx.stroke();
+            this.ctx.beginPath(); this.ctx.moveTo(0, i * this.grid); this.ctx.lineTo(this.canvas.width, i * this.grid); this.ctx.stroke();
+        }
+        this.ctx.shadowBlur = 10;
+        this.ctx.shadowColor = '#ff007f';
+        this.ctx.fillStyle = '#ff007f';
+        this.ctx.fillRect(this.food.x * this.grid + 2, this.food.y * this.grid + 2, this.grid - 4, this.grid - 4);
+        this.ctx.shadowColor = '#00ffcc';
+        this.snake.forEach((seg, i) => {
+            this.ctx.fillStyle = i === 0 ? '#ffffff' : '#00ffcc';
+            this.ctx.fillRect(seg.x * this.grid + 1, seg.y * this.grid + 1, this.grid - 2, this.grid - 2);
+        });
+        this.ctx.shadowBlur = 0;
+    }
+    gameOver() {
+        this.over = true;
+        clearInterval(this.timer);
+        document.getElementById('finalScore').innerText = this.score;
+        document.getElementById('overlay').classList.add('active');
+    }
+    setupKeys() {
+        window.addEventListener('keydown', e => {
+            if (e.key === 'ArrowUp' || e.key === 'w') this.setDir(0, -1);
+            else if (e.key === 'ArrowDown' || e.key === 's') this.setDir(0, 1);
+            else if (e.key === 'ArrowLeft' || e.key === 'a') this.setDir(-1, 0);
+            else if (e.key === 'ArrowRight' || e.key === 'd') this.setDir(1, 0);
+        });
+    }
+}
+const game = new NeonSnake();
+</script>
+</body>
+</html>
+EOF
+    echo -e "${GREEN}======================================================${NC}"
+    echo -e "${GREEN}  ✓ 霓虹赛博贪吃蛇小游戏已成功部署至站点首页！${NC}"
+    echo -e "${GREEN}  文件路径: ${target_file}${NC}"
+    echo -e "${GREEN}======================================================${NC}"
+    wait_for_user
+}
+
+# 3. 部署经典俄罗斯方块
+deploy_game_tetris() {
+    local root_dir
+    root_dir=$(get_nginx_web_root)
+    backup_index_html "$root_dir"
+    local target_file="$root_dir/index.html"
+    
+    cat > "$target_file" << 'EOF'
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>经典俄罗斯方块</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+body {
+    background: #11141d; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 10px;
+}
+.game-wrap { display: flex; gap: 15px; background: #1a1f2c; padding: 15px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+canvas { background: #0c0e14; border: 2px solid #2f384f; border-radius: 6px; display: block; }
+.side-panel { display: flex; flex-direction: column; justify-content: space-between; min-width: 100px; }
+.panel-box { background: #0c0e14; border: 1px solid #2f384f; border-radius: 6px; padding: 10px; text-align: center; margin-bottom: 10px; }
+.panel-lbl { font-size: 11px; color: #8b9bb4; text-transform: uppercase; margin-bottom: 4px; }
+.panel-val { font-size: 20px; font-weight: bold; color: #4deeea; }
+.btn {
+    background: #4deeea; color: #11141d; font-weight: bold; border: none; padding: 8px 12px;
+    border-radius: 6px; cursor: pointer; margin-top: 5px; width: 100%;
+}
+.btn:hover { background: #74f0ee; }
+.controls {
+    margin-top: 15px; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; max-width: 320px;
+}
+.c-row { display: flex; gap: 10px; }
+.c-btn {
+    background: #252c3f; border: 1px solid #3c4866; color: #4deeea; border-radius: 8px;
+    width: 54px; height: 44px; font-size: 18px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; touch-action: manipulation;
+}
+.c-btn:active { background: #4deeea; color: #11141d; }
+.tip { font-size: 12px; color: #6f7f98; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="game-wrap">
+    <canvas id="tetris" width="200" height="400"></canvas>
+    <div class="side-panel">
+        <div>
+            <div class="panel-box"><div class="panel-lbl">得分</div><div id="score" class="panel-val">0</div></div>
+            <div class="panel-box"><div class="panel-lbl">行数</div><div id="lines" class="panel-val">0</div></div>
+            <div class="panel-box"><div class="panel-lbl">级别</div><div id="level" class="panel-val">1</div></div>
+            <div class="panel-box">
+                <div class="panel-lbl">下一个</div>
+                <canvas id="next" width="80" height="80"></canvas>
+            </div>
+        </div>
+        <button class="btn" onclick="game.start()">重新开始</button>
+    </div>
+</div>
+<div class="controls">
+    <div class="c-row">
+        <div class="c-btn" onclick="game.rotate()">↻</div>
+    </div>
+    <div class="c-row">
+        <div class="c-btn" onclick="game.move(-1)">◀</div>
+        <div class="c-btn" onclick="game.drop()">▼</div>
+        <div class="c-btn" onclick="game.move(1)">▶</div>
+        <div class="c-btn" onclick="game.hardDrop()">⏬</div>
+    </div>
+</div>
+<div class="tip">电脑按键: ← → 移动，↑ 旋转，↓ 软降，空格 硬降</div>
+
+<script>
+const COLS = 10, ROWS = 20, BLOCK = 20;
+const SHAPES = [
+    [],
+    [[1,1,1,1]],
+    [[1,1,1],[0,1,0]],
+    [[1,1,1],[1,0,0]],
+    [[1,1,1],[0,0,1]],
+    [[1,1],[1,1]],
+    [[0,1,1],[1,1,0]],
+    [[1,1,0],[0,1,1]]
+];
+const COLORS = [null, '#4deeea', '#b00b69', '#f9a602', '#2f52e0', '#ffe600', '#00ff66', '#ff2e00'];
+
+class TetrisGame {
+    constructor() {
+        this.canvas = document.getElementById('tetris');
+        this.ctx = this.canvas.getContext('2d');
+        this.nextCanvas = document.getElementById('next');
+        this.nextCtx = this.nextCanvas.getContext('2d');
+        this.start();
+        this.setupKeys();
+    }
+    start() {
+        this.board = Array(ROWS).fill(0).map(() => Array(COLS).fill(0));
+        this.score = 0; this.lines = 0; this.level = 1;
+        this.gameOver = false;
+        this.nextType = Math.floor(Math.random() * 7) + 1;
+        this.spawn();
+        this.updateStats();
+        if (this.timer) clearInterval(this.timer);
+        this.speed = 800;
+        this.timer = setInterval(() => this.drop(), this.speed);
+    }
+    spawn() {
+        this.type = this.nextType;
+        this.nextType = Math.floor(Math.random() * 7) + 1;
+        this.matrix = SHAPES[this.type];
+        this.pos = { x: Math.floor((COLS - this.matrix[0].length) / 2), y: 0 };
+        if (this.collide(this.pos.x, this.pos.y, this.matrix)) {
+            this.gameOver = true;
+            clearInterval(this.timer);
+            alert("游戏结束！最终得分: " + this.score);
+        }
+        this.drawNext();
+    }
+    collide(x, y, mat) {
+        for (let r = 0; r < mat.length; r++) {
+            for (let c = 0; c < mat[r].length; c++) {
+                if (mat[r][c]) {
+                    let nx = x + c, ny = y + r;
+                    if (nx < 0 || nx >= COLS || ny >= ROWS || (ny >= 0 && this.board[ny][nx])) return true;
+                }
+            }
+        }
+        return false;
+    }
+    move(dir) {
+        if (this.gameOver) return;
+        if (!this.collide(this.pos.x + dir, this.pos.y, this.matrix)) {
+            this.pos.x += dir;
+            this.draw();
+        }
+    }
+    rotate() {
+        if (this.gameOver) return;
+        const rotated = this.matrix[0].map((_, i) => this.matrix.map(row => row[i]).reverse());
+        if (!this.collide(this.pos.x, this.pos.y, rotated)) {
+            this.matrix = rotated;
+            this.draw();
+        }
+    }
+    drop() {
+        if (this.gameOver) return;
+        if (!this.collide(this.pos.x, this.pos.y + 1, this.matrix)) {
+            this.pos.y++;
+        } else {
+            this.lock();
+        }
+        this.draw();
+    }
+    hardDrop() {
+        if (this.gameOver) return;
+        while (!this.collide(this.pos.x, this.pos.y + 1, this.matrix)) {
+            this.pos.y++;
+            this.score += 2;
+        }
+        this.lock();
+        this.draw();
+    }
+    lock() {
+        this.matrix.forEach((row, r) => {
+            row.forEach((val, c) => {
+                if (val) this.board[this.pos.y + r][this.pos.x + c] = this.type;
+            });
+        });
+        this.clearLines();
+        this.spawn();
+    }
+    clearLines() {
+        let cleared = 0;
+        for (let r = ROWS - 1; r >= 0; r--) {
+            if (this.board[r].every(v => v !== 0)) {
+                this.board.splice(r, 1);
+                this.board.unshift(Array(COLS).fill(0));
+                cleared++;
+                r++;
+            }
+        }
+        if (cleared > 0) {
+            const points = [0, 100, 300, 500, 800];
+            this.score += (points[cleared] || 1000) * this.level;
+            this.lines += cleared;
+            this.level = Math.floor(this.lines / 10) + 1;
+            this.updateStats();
+        }
+    }
+    updateStats() {
+        document.getElementById('score').innerText = this.score;
+        document.getElementById('lines').innerText = this.lines;
+        document.getElementById('level').innerText = this.level;
+    }
+    draw() {
+        this.ctx.fillStyle = '#0c0e14';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.board.forEach((row, r) => {
+            row.forEach((val, c) => {
+                if (val) this.drawBlock(this.ctx, c * BLOCK, r * BLOCK, COLORS[val]);
+            });
+        });
+        if (this.matrix) {
+            this.matrix.forEach((row, r) => {
+                row.forEach((val, c) => {
+                    if (val) this.drawBlock(this.ctx, (this.pos.x + c) * BLOCK, (this.pos.y + r) * BLOCK, COLORS[this.type]);
+                });
+            });
+        }
+    }
+    drawBlock(ctx, x, y, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(x + 1, y + 1, BLOCK - 2, BLOCK - 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.strokeRect(x + 1, y + 1, BLOCK - 2, BLOCK - 2);
+    }
+    drawNext() {
+        this.nextCtx.fillStyle = '#0c0e14';
+        this.nextCtx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
+        const mat = SHAPES[this.nextType];
+        const offX = (this.nextCanvas.width - mat[0].length * 16) / 2;
+        const offY = (this.nextCanvas.height - mat.length * 16) / 2;
+        mat.forEach((row, r) => {
+            row.forEach((val, c) => {
+                if (val) {
+                    this.nextCtx.fillStyle = COLORS[this.nextType];
+                    this.nextCtx.fillRect(offX + c * 16, offY + r * 16, 14, 14);
+                }
+            });
+        });
+    }
+    setupKeys() {
+        window.addEventListener('keydown', e => {
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') this.move(-1);
+            else if (e.code === 'ArrowRight' || e.code === 'KeyD') this.move(1);
+            else if (e.code === 'ArrowUp' || e.code === 'KeyW') this.rotate();
+            else if (e.code === 'ArrowDown' || e.code === 'KeyS') this.drop();
+            else if (e.code === 'Space') this.hardDrop();
+        });
+    }
+}
+const game = new TetrisGame();
+</script>
+</body>
+</html>
+EOF
+    echo -e "${GREEN}======================================================${NC}"
+    echo -e "${GREEN}  ✓ 经典俄罗斯方块小游戏已成功部署至站点首页！${NC}"
+    echo -e "${GREEN}  文件路径: ${target_file}${NC}"
+    echo -e "${GREEN}======================================================${NC}"
+    wait_for_user
+}
+
+# 4. 部署现代极客个人博客/导航主页
+deploy_geek_blog() {
+    local root_dir
+    root_dir=$(get_nginx_web_root)
+    backup_index_html "$root_dir"
+    local target_file="$root_dir/index.html"
+    
+    cat > "$target_file" << 'EOF'
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geek's Space - 探索技术与思考</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6; padding: 20px;
+}
+.container { max-width: 800px; margin: 0 auto; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid #30363d; margin-bottom: 30px; }
+.logo { font-size: 22px; font-weight: bold; color: #58a6ff; text-decoration: none; display: flex; align-items: center; gap: 8px; }
+nav a { color: #8b949e; text-decoration: none; margin-left: 20px; font-size: 14px; transition: color 0.2s; }
+nav a:hover { color: #58a6ff; }
+.hero-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; margin-bottom: 30px;
+    display: flex; gap: 20px; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.avatar {
+    width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(135deg, #238636, #58a6ff);
+    display: flex; align-items: center; justify-content: center; font-size: 32px; flex-shrink: 0; box-shadow: 0 0 15px rgba(88,166,255,0.4);
+}
+.bio h1 { font-size: 20px; color: #f0f6fc; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; }
+.status-pill { font-size: 12px; background: rgba(35,134,54,0.2); color: #3fb950; border: 1px solid rgba(59,185,80,0.3); border-radius: 20px; padding: 2px 10px; font-weight: normal; }
+.bio p { font-size: 14px; color: #8b949e; margin-bottom: 10px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font-size: 12px; background: #21262d; color: #79c0ff; border: 1px solid #30363d; border-radius: 6px; padding: 2px 8px; }
+.section-title { font-size: 18px; color: #f0f6fc; margin-bottom: 16px; border-left: 4px solid #58a6ff; padding-left: 10px; }
+.posts { display: flex; flex-direction: column; gap: 16px; margin-bottom: 30px; }
+.post-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 18px; transition: transform 0.2s, border-color 0.2s;
+    cursor: pointer; text-decoration: none; display: block;
+}
+.post-card:hover { transform: translateY(-2px); border-color: #58a6ff; }
+.post-title { font-size: 16px; font-weight: bold; color: #58a6ff; margin-bottom: 6px; }
+.post-desc { font-size: 13px; color: #8b949e; margin-bottom: 10px; }
+.post-meta { font-size: 12px; color: #6e7681; display: flex; gap: 15px; }
+.links-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 40px; }
+.link-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-decoration: none; color: #c9d1d9;
+    display: flex; align-items: center; gap: 10px; font-size: 14px; transition: background 0.2s;
+}
+.link-card:hover { background: #21262d; color: #58a6ff; }
+footer { text-align: center; font-size: 13px; color: #6e7681; padding: 20px 0; border-top: 1px solid #30363d; }
+@media (max-width: 600px) {
+    .hero-card { flex-direction: column; text-align: center; }
+    .tags { justify-content: center; }
+    header { flex-direction: column; gap: 10px; }
+    nav a { margin: 0 10px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <a href="#" class="logo">⚡ GEEK_SPACE</a>
+        <nav>
+            <a href="#">文章</a>
+            <a href="#">项目</a>
+            <a href="#">关于</a>
+        </nav>
+    </header>
+
+    <div class="hero-card">
+        <div class="avatar">🚀</div>
+        <div class="bio">
+            <h1>Geek Explorer <span class="status-pill">● Online</span></h1>
+            <p>探索底层系统、高性能网络与云原生架构 · 追求极致效率与简洁优雅</p>
+            <div class="tags">
+                <span class="tag">Linux</span>
+                <span class="tag">Nginx</span>
+                <span class="tag">Docker</span>
+                <span class="tag">BBR/TCP</span>
+                <span class="tag">Go</span>
+                <span class="tag">Python</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-title">精选博文</div>
+    <div class="posts">
+        <div class="post-card">
+            <div class="post-title">2026 现代 Linux VPS 极限网络调优与物理网卡 FQ 持久化实战</div>
+            <div class="post-desc">深度剖析为什么常规 sysctl default_qdisc 会产生“假生效”，以及如何通过 hardware qdisc replace 和 64MB 巨型 BDP 读写缓冲区突破跨国千兆单流吞吐限制。</div>
+            <div class="post-meta"><span>📅 2026-09-16</span><span>⏱ 8 min read</span><span>🏷 架构与网络</span></div>
+        </div>
+        <div class="post-card">
+            <div class="post-title">从零搭建生产级 Nginx 安全反向代理与 WebSocket 动态映射</div>
+            <div class="post-desc">解密 HTTP 与 WebSocket 混合流量在 Nginx 层的无损转发策略，实现精准状态探测与自动回滚高可用机制。</div>
+            <div class="post-meta"><span>📅 2026-09-10</span><span>⏱ 12 min read</span><span>🏷 Nginx 实战</span></div>
+        </div>
+        <div class="post-card">
+            <div class="post-title">如何保护 VPS 免受全网端口扫描与 SSH 暴力破解侵害</div>
+            <div class="post-desc">修改自定义高位端口，联动 UFW / Firewalld / SELinux 策略，在确保业务安全的同时杜绝失联风险。</div>
+            <div class="post-meta"><span>📅 2026-09-02</span><span>⏱ 6 min read</span><span>🏷 服务器运维</span></div>
+        </div>
+    </div>
+
+    <div class="section-title">常用导航</div>
+    <div class="links-grid">
+        <a href="https://github.com" target="_blank" class="link-card">🐙 GitHub 开源项目</a>
+        <a href="https://kernel.org" target="_blank" class="link-card">🐧 Linux Kernel 文档</a>
+        <a href="https://nginx.org" target="_blank" class="link-card">🌐 Nginx 官方手册</a>
+        <a href="https://speedtest.net" target="_blank" class="link-card">⚡ 国际网络测速</a>
+    </div>
+
+    <footer>
+        <p>© 2026 Powered by Nginx on Linux VPS · All Rights Reserved.</p>
+    </footer>
+</div>
+</body>
+</html>
+EOF
+    echo -e "${GREEN}======================================================${NC}"
+    echo -e "${GREEN}  ✓ 现代极客个人博客/导航主页已成功部署至站点首页！${NC}"
+    echo -e "${GREEN}  文件路径: ${target_file}${NC}"
+    echo -e "${GREEN}======================================================${NC}"
+    wait_for_user
+}
+
+# 5. 部署自定义地址栏不变的隐形跳转与伪装
+deploy_cloaked_redirect() {
+    local root_dir
+    root_dir=$(get_nginx_web_root)
+    
+    echo ""
+    echo -e "${CYAN}======================================================${NC}"
+    echo -e "${CYAN}         自定义地址栏不变的网站跳转/伪装${NC}"
+    echo -e "${CYAN}======================================================${NC}"
+    echo -e "${YELLOW}提示: 访客访问您的 VPS IP 或域名时，将以全屏无缝呈现目标网站，${NC}"
+    echo -e "${YELLOW}      而浏览器的地址栏将始终保持为您当前 VPS 的地址！${NC}"
+    echo -e "${CYAN}------------------------------------------------------${NC}"
+    
+    local target_url=""
+    read -p "请输入目标跳转网站 URL (如 https://www.bing.com): " target_url
+    [ -z "$target_url" ] && echo -e "${YELLOW}已取消${NC}" && wait_for_user && return
+    
+    if [[ ! "$target_url" =~ ^https?:// ]]; then
+        target_url="https://$target_url"
+    fi
+    
+    local site_title="Welcome"
+    read -p "请输入网页标签页标题 (默认: Welcome): " input_title
+    [ -n "$input_title" ] && site_title="$input_title"
+    
+    backup_index_html "$root_dir"
+    local target_file="$root_dir/index.html"
+    
+    local template='<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>__SITE_TITLE__</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+#frame {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    border: none; margin: 0; padding: 0; display: block; z-index: 1;
+}
+#loader {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #12141a;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: #8b949e; font-family: system-ui, sans-serif; z-index: 2; transition: opacity 0.5s ease;
+}
+.spinner {
+    width: 44px; height: 44px; border: 4px solid rgba(255,255,255,0.1);
+    border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="loader">
+    <div class="spinner"></div>
+    <div style="font-size: 14px; letter-spacing: 1px;">正在加载内容...</div>
+</div>
+<iframe id="frame" src="__TARGET_URL__" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen onload="document.getElementById(\x27loader\x27).style.opacity=\x270\x27;setTimeout(()=>document.getElementById(\x27loader\x27).style.display=\x27none\x27,500)"></iframe>
+</body>
+</html>'
+
+    local safe_url="${target_url//&/\\&}"
+    local safe_title="${site_title//&/\\&}"
+    local content="${template//__SITE_TITLE__/$safe_title}"
+    content="${content//__TARGET_URL__/$safe_url}"
+    
+    echo "$content" > "$target_file"
+    
+    echo -e "${GREEN}======================================================${NC}"
+    echo -e "${GREEN}  ✓ 隐形穿透跳转页面已成功部署至站点首页！${NC}"
+    echo -e "${GREEN}  目标网站: ${CYAN}${target_url}${NC}"
+    echo -e "${GREEN}  网页标题: ${CYAN}${site_title}${NC}"
+    echo -e "${GREEN}  文件路径: ${target_file}${NC}"
+    echo -e "${GREEN}======================================================${NC}"
+    wait_for_user
+}
+
+# 6. 还原官方原生 Nginx 欢迎页
+restore_default_index() {
+    local root_dir
+    root_dir=$(get_nginx_web_root)
+    backup_index_html "$root_dir"
+    local target_file="$root_dir/index.html"
+    
+    cat > "$target_file" << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+html { color-scheme: light dark; }
+body { width: 35em; margin: 0 auto;
+font-family: Tahoma, Verdana, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>
+EOF
+    echo -e "${GREEN}======================================================${NC}"
+    echo -e "${GREEN}  ✓ 已成功还原为官方原生 Nginx 欢迎页！${NC}"
+    echo -e "${GREEN}  文件路径: ${target_file}${NC}"
+    echo -e "${GREEN}======================================================${NC}"
+    wait_for_user
+}
+
+# 二级菜单：网站首页与伪装发布管理
+web_homepage_management() {
+    local root_dir
+    root_dir=$(get_nginx_web_root)
+    
+    while true; do
+        clear_screen
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "${CYAN}          Nginx 网站主页与伪装发布管理${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -e "当前站点根目录: ${GREEN}${root_dir}${NC}"
+        echo -e "主页文件路径:   ${GREEN}${root_dir}/index.html${NC}"
+        echo -e "${CYAN}--------------------------------------------------------------${NC}"
+        echo -e "${GREEN}1.${NC} 一键部署：经典 2048 数字拼图 (现代炫彩版)"
+        echo -e "${GREEN}2.${NC} 一键部署：霓虹赛博贪吃蛇 (炫彩 Canvas + 触屏)"
+        echo -e "${GREEN}3.${NC} 一键部署：经典俄罗斯方块 (复古街机风)"
+        echo -e "${GREEN}4.${NC} 一键部署：现代极客个人博客 / 导航主页 (暗黑极简)"
+        echo -e "${GREEN}5.${NC} 一键部署：自定义地址栏不变隐形跳转 (全屏穿透)"
+        echo -e "${GREEN}6.${NC} 还原为官方原生欢迎页 (Welcome to nginx)"
+        echo -e "${RED}0.${NC} 返回上级菜单"
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -n "请选择操作 [0-6]: "
+        
+        read -r choice || break
+        case "$choice" in
+            1) deploy_game_2048 ;;
+            2) deploy_game_snake ;;
+            3) deploy_game_tetris ;;
+            4) deploy_geek_blog ;;
+            5) deploy_cloaked_redirect ;;
+            6) restore_default_index ;;
+            0) break ;;
+            *) echo -e "${RED}无效选择${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+#====================================================
 # 主菜单交互
 #====================================================
 
@@ -1329,9 +2321,9 @@ main_menu() {
     init_env
     while true; do
         echo ""
-        echo -e "${CYAN}========================================${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
         echo -e "${CYAN}       Nginx 管理与反向代理工具 v${SCRIPT_VERSION}${NC}"
-        echo -e "${CYAN}========================================${NC}"
+        echo -e "${CYAN}==============================================================${NC}"
         echo -e "${GREEN}1.${NC} 安装 Nginx"
         echo -e "${GREEN}2.${NC} 启动 / 重启 / 重载 Nginx"
         echo -e "${GREEN}3.${NC} 查看状态与当前代理配置"
@@ -1342,9 +2334,10 @@ main_menu() {
         echo -e "${GREEN}8.${NC} 删除代理配置 (支持编号选择)"
         echo -e "${GREEN}9.${NC} 恢复初始配置 (官方出厂还原 / 默认重置)"
         echo -e "${GREEN}10.${NC} 卸载 Nginx"
+        echo -e "${GREEN}11.${NC} 网站首页与伪装发布 (小游戏 / 个人博客 / 隐形跳转)"
         echo -e "${RED}0.${NC} 返回"
-        echo -e "${CYAN}========================================${NC}"
-        echo -n "请选择操作 [0-10]: "
+        echo -e "${CYAN}==============================================================${NC}"
+        echo -n "请选择操作 [0-11]: "
         
         read -r choice || break
         case "$choice" in
@@ -1394,11 +2387,15 @@ main_menu() {
                 check_root
                 uninstall_nginx
                 ;;
+            11)
+                check_root
+                web_homepage_management
+                ;;
             0)
                 break
                 ;;
             *)
-                echo -e "${RED}无效选择，请输入 0-10${NC}"
+                echo -e "${RED}无效选择，请输入 0-11${NC}"
                 sleep 1
                 ;;
         esac
@@ -1406,4 +2403,6 @@ main_menu() {
 }
 
 # 运行入口
-main_menu
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main_menu
+fi

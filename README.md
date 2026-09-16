@@ -17,7 +17,7 @@ wget https://raw.githubusercontent.com/CFM503/sh/master/menu.sh && chmod +x menu
 | 功能 | 说明 |
 |------|------|
 | 网络优化 | BBR+FQ硬件队列开机持久化、64M/16M内存自适应BDP缓冲区、0-RTT握手加速、修改SSH端口(防暴力破解) |
-| Nginx配置 | 自动安装Nginx、配置反向代理(支持WebSocket) |
+| Nginx配置 | 自动安装Nginx、配置反向代理(支持WebSocket)、网站首页替换(2048/赛博贪吃蛇/俄罗斯方块小游戏、极客风Blog、隐形穿透跳转) |
 | 自动更新 | 支持主菜单与子脚本自动检测更新、版本比对与原子热重启 |
 
 ## 使用方法
@@ -34,7 +34,7 @@ wget https://raw.githubusercontent.com/CFM503/sh/master/menu.sh && chmod +x menu
 
 ## 版本
 
-当前版本: v1.5.1
+当前版本: v1.6.0
 
 ## 许可证
 
