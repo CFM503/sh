@@ -2,11 +2,11 @@
 
 #==============================================
 # VPS 管理工具 - 主菜单
-# 版本: 1.5.0
+# 版本: 1.5.1
 # 支持主菜单与子菜单自动更新与版本检测
 #==============================================
 
-SCRIPT_VERSION="1.5.0"
+SCRIPT_VERSION="1.5.1"
 VERSION="$SCRIPT_VERSION"
 
 RED='\033[0;31m'
@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GITHUB_RAW="https://raw.githubusercontent.com/CFM503/sh/master"
 
 clear_screen() {
-    clea
+    clear 2>/dev/null || printf "\033c"
 }
 
 wait_for_user() {
