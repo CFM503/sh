@@ -8,6 +8,11 @@
 
 ## [1.6.0] - 2026-09-16
 
+### 修复
+- **网络优化模块参数与函数拼写修正 (`network_optimize.sh v1.3.1`)**：
+  - 修复 `net.ipv4.tcp_congestion_control` 赋值拼写丢失字符导致 BBR 算法未生效的 Bug（`bb` -> `bbr`）；
+  - 修复暂停等待函数拼写（`wait_for_use` -> `wait_for_user`）。
+
 ### 新增功能
 
 #### Nginx 子模块：网站首页替换与伪装发布系统 (小游戏 / 个人博客 / 隐形跳转)

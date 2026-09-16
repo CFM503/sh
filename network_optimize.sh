@@ -2,12 +2,12 @@
 
 #==============================================
 # VPS 网络优化脚本
-# 版本: 1.3.0
+# 版本: 1.3.1
 # 2026 现代极限网络调优 (BBR+FQ物理硬件持久化、64M巨型BDP缓冲区、0-RTT握手加速、SSH端口修改)
 # 适配: Debian 12/13, Ubuntu, CentOS, RHEL
 #==============================================
 
-SCRIPT_VERSION="1.3.0"
+SCRIPT_VERSION="1.3.1"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -199,7 +199,7 @@ optimize_network() {
 
 # 1. 开启 BBR 拥塞控制与 FQ 队列调度
 net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bb
+net.ipv4.tcp_congestion_control = bbr
 
 # 2. 巨型 TCP 读写缓冲区 (打破跨国千兆高延迟 BDP 限制)
 net.core.rmem_max = ${buf_max}
@@ -351,7 +351,7 @@ verify_config() {
         echo -e "${YELLOW}  部分配置生效中，若为旧内核请考虑升级系统或内核。${NC}"
     fi
     echo -e "${CYAN}======================================================${NC}"
-    wait_for_use
+    wait_for_user
 }
 
 # 显示当前配置
@@ -388,7 +388,7 @@ show_current_config() {
     sysctl net.ipv4.tcp_tw_reuse 2>/dev/null
     sysctl net.ipv4.tcp_fin_timeout 2>/dev/null
     echo -e "${CYAN}==============================================${NC}"
-    wait_for_use
+    wait_for_user
 }
 
 # 恢复备份与回滚
@@ -398,7 +398,7 @@ restore_backup() {
     
     if [ $? -ne 0 ]; then
         echo -e "${RED}未找到备份文件${NC}"
-        wait_for_use
+        wait_for_user
         return
     fi
     
@@ -434,7 +434,7 @@ restore_backup() {
     else
         echo -e "${RED}错误: 备份目录不存在: $target_dir${NC}"
     fi
-    wait_for_use
+    wait_for_user
 }
 
 #==============================================
@@ -574,7 +574,7 @@ change_ssh_port() {
         
         if [ "$new_port" -eq "$current_port" ]; then
             echo -e "${YELLOW}当前 SSH 已经在使用端口 ${new_port}，无需重复修改。${NC}"
-            wait_for_use
+            wait_for_user
             return 0
         fi
         
@@ -592,7 +592,7 @@ change_ssh_port() {
     
     if [ ! -f /etc/ssh/sshd_config ]; then
         echo -e "${RED}错误: 未找到 SSH 主配置文件 /etc/ssh/sshd_config${NC}"
-        wait_for_use
+        wait_for_user
         return 1
     fi
     
@@ -627,7 +627,7 @@ change_ssh_port() {
         echo -e "${YELLOW}正在自动回滚原配置，取消本次操作...${NC}"
         cp "$backup_file" /etc/ssh/sshd_config
         echo -e "${GREEN}✓ 已成功回滚至修改前状态，未对服务产生影响。${NC}"
-        wait_for_use
+        wait_for_user
         return 1
     fi
     echo -e "${GREEN}✓ 配置语法测试通过${NC}"
@@ -680,7 +680,7 @@ change_ssh_port() {
     echo -e "${YELLOW}5. 配置文件备份保存在: ${backup_file}${NC}"
     echo -e "${RED}========================================================================${NC}"
     
-    wait_for_use
+    wait_for_user
 }
 
 # 主菜单
