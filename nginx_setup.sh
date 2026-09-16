@@ -2,10 +2,14 @@
 
 #====================================================
 # Nginx 管理与反向代理配置脚本
+# 版本: 1.5.0
 # 功能: 自动安装/卸载Nginx、安全配置反向代理(WebSocket)、
 #       查看状态、删除代理、一键修复/恢复出厂默认配置
 # 适配: Debian / Ubuntu / CentOS / RHEL / Fedora / Arch / Alpine
 #====================================================
+
+SCRIPT_VERSION="1.5.0"
+VERSION="1.5.0"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -151,7 +155,7 @@ clean_corrupted_configs() {
 
 # 初始化环境
 init_env() {
-    detect_package_manager
+    detect_package_manage
     detect_nginx_dirs
     clean_corrupted_configs
 }
@@ -1326,7 +1330,7 @@ main_menu() {
     while true; do
         echo ""
         echo -e "${CYAN}========================================${NC}"
-        echo -e "${CYAN}       Nginx 管理与反向代理工具${NC}"
+        echo -e "${CYAN}       Nginx 管理与反向代理工具 v${SCRIPT_VERSION}${NC}"
         echo -e "${CYAN}========================================${NC}"
         echo -e "${GREEN}1.${NC} 安装 Nginx"
         echo -e "${GREEN}2.${NC} 启动 / 重启 / 重载 Nginx"
