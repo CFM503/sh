@@ -34,7 +34,7 @@ wget https://raw.githubusercontent.com/CFM503/sh/master/menu.sh && chmod +x menu
 
 ## 版本
 
-当前版本: v1.6.0
+当前版本: v1.6.1
 
 ## 许可证
 

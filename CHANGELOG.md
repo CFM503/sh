@@ -6,6 +6,13 @@
 
 ---
 
+## [1.6.1] - 2026-09-16
+
+### 修复
+- **Nginx 初始化拼写修复 (`nginx_setup.sh`)**：修复 `init_env` 中包管理器检测函数拼写错误（`detect_package_manage` -> `detect_package_manager`），消除进入子菜单时的 `command not found` 提示。
+
+---
+
 ## [1.6.0] - 2026-09-16
 
 ### 修复
